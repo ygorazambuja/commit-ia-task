@@ -1,0 +1,16 @@
+{
+  "name": "commit-ia-task",
+  "module": "src/index.ts",
+  "version": "0.0.1",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "openai": "^4.76.3",
+    "zod": "^3.24.1"
+  }
+}
