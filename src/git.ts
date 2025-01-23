@@ -1,33 +1,54 @@
 import { $ } from "bun";
-import { createTasks } from "./ai";
+import pino from "pino";
+import type { z } from "zod";
+import { createTasks, expectedOutputTask } from "./ai";
+
+const logger = pino();
 
 export async function getDiff(gitFolder: string) {
   const files = await getAlteredFileNames(gitFolder);
-  const jsons = [];
+  const jsons: z.infer<typeof expectedOutputTask>[] = [];
 
-  for (const file of files) {
+  const promises = files.map(async (file) => {
     const diff = await $`git diff ${file}`.text();
-
     console.log("Criando Tasks para o arquivo " + file);
 
-    const json = await createTasks({ file, diff });
-    if (json) jsons.push(json);
+    return createTasks({ file, diff });
+  });
+
+  const results = await Promise.allSettled(promises);
+
+  const corrects = results.filter((r) => r.status === "fulfilled");
+  const errors = results.filter((r) => r.status === "rejected");
+
+  corrects.map(async (c) => {
+    console.log(c);
+
+    jsons.push({
+      fullFilePath: c.value?.fullFilePath ?? "",
+      tasks: c.value?.tasks ?? [],
+    });
+  });
+
+  for (const c of corrects) {
+    console.log(c.value?.fullFilePath);
+
+    const { stderr, exitCode } = await $`git add ${c.value?.fullFilePath}`
+      .nothrow()
+      .quiet();
+
+    if (exitCode !== 0) console.log(stderr.toString());
   }
 
-  Bun.write("tasks.json", JSON.stringify(jsons));
+  errors.map((e) => logger.error(e));
 
   return jsons;
 }
 
-// export async function getMockFile() {
-//   const file = Bun.file("./tasks.json");
-//   return await file.json();
-// }
-
 async function getAlteredFileNames(gitFolder: string): Promise<Array<string>> {
   const proc = Bun.spawn(["git", "diff", "--name-only"]);
 
-  const ignoredPatterns = ["pnpm-lock.yaml"];
+  const ignoredPatterns = ["pnpm-lock.yaml", "bun.lockb", "package-lock.json"];
 
   const text = await new Response(proc.stdout).text();
   const files = text

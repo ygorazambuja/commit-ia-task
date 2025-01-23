@@ -8,29 +8,35 @@ const writeHeader = () => {
     "Title 2",
     "Assigned To",
     "State",
-    "Area Path",
-    "Iteration Path",
+    "Area ID",
+    "Iteration ID",
     "Item Contrato",
     "ID SPF",
     "UST",
     "Complexidade",
     "Activity",
     "Description",
+    "Estimate Made",
+    "Remaining Work",
   ];
 
   return headers;
 };
 
-export const buildCsvFile = (files: z.infer<typeof expectedOutputTask>[]) => {
+export const buildCsvFile = (
+  files: z.infer<typeof expectedOutputTask>[],
+  areaId: string,
+  iterationId: string
+) => {
   const tasks = files.map(({ tasks }) => tasks).flat();
   const outputTasks = tasks.map(
     (t) =>
       `,Task,${
         t.title
-      },Ygor Azambuja <ygor.azambuja@infortechms.com.br>,To Do,SPF-SIAFIC\\\\SIAFIC Asp.Net Core,SPF-SIAFIC\\\\Siafic Asp.Net Core\\\\Siafic Asp.Net Core - SP52,Item 1, 22,4,ÚNICA,Development,${t.description.replaceAll(
+      },Ygor Azambuja <ygor.azambuja@infortechms.com.br>,To Do,${areaId},${iterationId},Item 1, 22,4,ÚNICA,Development,${t.description.replaceAll(
         ",",
         ""
-      )}`
+      )}, 1,1`
   );
 
   const fileContent = [writeHeader(), [...outputTasks].join("\n")].join("\n");

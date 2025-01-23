@@ -13,7 +13,7 @@ export const expectedOutputTask = z.object({
       description: z.string(),
     })
   ),
-  filename: z.string(),
+  fullFilePath: z.string(),
 });
 
 export const createTasks = async ({ file, diff }: Input) => {
