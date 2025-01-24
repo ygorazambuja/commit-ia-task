@@ -10,7 +10,9 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "openai": "^4.76.3",
+    "@ai-sdk/openai": "^1.1.2",
+    "ai": "^4.1.4",
+    "openai": "^4.80.0",
     "pino": "^9.6.0",
     "zod": "^3.24.1"
   }
