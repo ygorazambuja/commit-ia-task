@@ -1,49 +1,66 @@
 import type { z } from "zod";
 import type { expectedOutputTask } from "./ai";
+import { createObjectCsvWriter } from "csv-writer";
 
-const writeHeader = () => {
-  const headers = [
-    "ID",
-    "Work Item Type",
-    "Title 2",
-    "Assigned To",
-    "State",
-    "Area ID",
-    "Iteration ID",
-    "Item Contrato",
-    "ID SPF",
-    "UST",
-    "Complexidade",
-    "Activity",
-    "Description",
-    "Estimate Made",
-    "Remaining Work",
-  ];
+const writeHeader = () => [
+  "ID",
+  "Work Item Type",
+  "Title",
+  "Assigned To",
+  "State",
+  "Area ID",
+  "Iteration ID",
+  "Item Contrato",
+  "ID SPF",
+  "UST",
+  "Complexidade",
+  "Activity",
+  "Description",
+  "Estimate Made",
+  "Remaining Work",
+];
 
-  return headers;
-};
-
-export const buildCsvFile = (
-  files: z.infer<typeof expectedOutputTask>[],
-  areaId: string,
-  iterationId: string
-) => {
+export const buildCsvFile = async ({
+  files,
+  assignedTo,
+  areaId,
+  sprintId,
+}: BuildCsvInput) => {
   const tasks = files.map(({ tasks }) => tasks).flat();
-  const outputTasks = tasks.map(
-    (t) =>
-      `,Task,${
-        t.title
-      },Ygor Azambuja <ygor.azambuja@infortechms.com.br>,To Do,${areaId},${iterationId},Item 1, 22,4,ÚNICA,Development,${t.description.replaceAll(
-        ",",
-        ""
-      )}, 1,1`
-  );
-
-  const fileContent = [writeHeader(), [...outputTasks].join("\n")].join("\n");
-
   const currentDate = new Date();
   const formattedDate = `${currentDate.getDate()}-${
     currentDate.getMonth() + 1
   }-${currentDate.getHours()}-${currentDate.getMinutes()}`;
-  Bun.write(`tasks-${formattedDate}.csv`, fileContent);
+
+  const csvWriter = createObjectCsvWriter({
+    path: `tasks-${formattedDate}.csv`,
+    header: writeHeader().map((header) => ({ id: header, title: header })),
+  });
+
+  const records = tasks.map((t) => ({
+    ID: "",
+    "Work Item Type": "Task",
+    Title: t.title,
+    "Assigned To": assignedTo,
+    State: "To Do",
+    "Area ID": areaId,
+    "Iteration ID": sprintId,
+    "Item Contrato": "Item 1",
+    "ID SPF": 22,
+    UST: 4,
+    Complexidade: "ÚNICA",
+    Activity: "Development",
+    Description: t.description,
+    "Estimate Made": 1,
+    "Remaining Work": 1,
+  }));
+
+  await csvWriter.writeRecords(records);
+};
+
+type BuildCsvInput = {
+  files: z.infer<typeof expectedOutputTask>[];
+  assignedTo: string;
+  areaId: string;
+  sprintId: string;
 };

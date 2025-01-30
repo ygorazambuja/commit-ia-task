@@ -12,6 +12,10 @@ const { values } = parseArgs({
     areaPathId: {
       type: "string",
     },
+    assignedTo: {
+      type: "string",
+      default: "Ygor Azambuja <ygor.azambuja@infortechms.com.br>",
+    },
   },
   strict: true,
   allowPositionals: true,
@@ -25,5 +29,10 @@ if (!values.sprintId || !values.areaPathId) {
 const pwd = await $`pwd`.text();
 console.log("Iniciando Processo");
 const files = await getDiff(pwd);
-buildCsvFile(files, values.areaPathId, values.sprintId);
+buildCsvFile({
+  files,
+  areaId: values.areaPathId,
+  assignedTo: values.assignedTo,
+  sprintId: values.sprintId,
+});
 console.log("Finalizado com sucesso");

@@ -22,7 +22,7 @@ export async function getDiff(gitFolder: string) {
   const errors = results.filter((r) => r.status === "rejected");
 
   corrects.map(async (c) => {
-    console.log(c);
+    console.log(`Gerado tasks para o Arquivo ${c.value.fullFilePath}`);
 
     jsons.push({
       fullFilePath: c.value?.fullFilePath ?? "",
