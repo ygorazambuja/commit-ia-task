@@ -10,11 +10,11 @@ const openaiApiClient = createOpenAI({
 export const expectedOutputTask = z.object({
 	tasks: z.array(
 		z.object({
-			title: z.string(),
-			description: z.string(),
+			title: z.string().describe("O titulo da tarefa"),
+			description: z.string().describe("A descrição da tarefa"),
 		}),
 	),
-	fullFilePath: z.string(),
+	fullFilePath: z.string().describe("O caminho completo do arquivo"),
 });
 
 export const createTasks = async ({ file, diff }: Input) => {

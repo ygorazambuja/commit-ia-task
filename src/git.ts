@@ -18,10 +18,27 @@ export async function getDiff(gitFolder: string) {
 		const fileName = file.replace(`${gitFolder}/`, "");
 		logger.info("🤖 Iniciando criação de tasks para arquivo", { fileName });
 
-		const diff = await $`git diff ${file}`.text();
-		logger.debug("📝 Diff obtido", { fileName, diffLength: diff.length });
+		// Verificar se o arquivo é novo (untracked) ou modificado
+		const isNewFile = await isFileUntracked(gitFolder, fileName);
+		let content: string;
 
-		return createTasks({ file, diff });
+		if (isNewFile) {
+			// Para arquivos novos, ler o conteúdo completo
+			content = await Bun.file(file).text();
+			logger.debug("📝 Conteúdo completo obtido para arquivo novo", {
+				fileName,
+				contentLength: content.length
+			});
+		} else {
+			// Para arquivos modificados, usar o diff
+			content = await $`git diff ${file}`.text();
+			logger.debug("📝 Diff obtido para arquivo modificado", {
+				fileName,
+				diffLength: content.length
+			});
+		}
+
+		return createTasks({ file, diff: content });
 	});
 
 	const results = await Promise.allSettled(promises);
@@ -121,4 +138,50 @@ async function getAlteredFileNames(gitFolder: string): Promise<Array<string>> {
 	});
 
 	return [...diffFiles, ...newFiles];
+}
+
+async function isFileUntracked(gitFolder: string, fileName: string): Promise<boolean> {
+	try {
+		// Verificar se o arquivo está entre os untracked files
+		const untrackedFiles = await $`git ls-files --others --exclude-standard`.text();
+		const untrackedList = untrackedFiles.split('\n').filter(Boolean);
+
+		// O git ls-files retorna apenas nomes relativos, então precisamos comparar apenas o nome do arquivo
+		const baseFileName = fileName.split('/').pop() || fileName;
+
+		logger.debug("🔍 Verificação se arquivo é untracked", {
+			fileName,
+			baseFileName,
+			untrackedFilesRaw: untrackedFiles,
+			untrackedList,
+			untrackedFilesCount: untrackedList.length,
+			fileNameInList: untrackedList.includes(baseFileName)
+		});
+
+		// Verificar também se o arquivo existe no filesystem mas não está tracked
+		const isInList = untrackedList.includes(baseFileName);
+
+		// Verificação adicional: se não está no diff e não está staged, pode ser untracked
+		const stagedFiles = await $`git diff --cached --name-only`.text();
+		const stagedList = stagedFiles.split('\n').filter(Boolean);
+		const isStaged = stagedList.includes(baseFileName);
+
+		const isUntracked = isInList && !isStaged;
+
+		logger.debug("🔍 Verificação completa de untracked", {
+			fileName,
+			isInList,
+			isStaged,
+			finalResult: isUntracked
+		});
+
+		return isUntracked;
+	} catch (error) {
+		logger.error("❌ Erro ao verificar se arquivo é untracked", {
+			fileName,
+			error: error instanceof Error ? error.message : String(error)
+		});
+		// Em caso de erro, assumir que não é untracked (usar diff)
+		return false;
+	}
 }
