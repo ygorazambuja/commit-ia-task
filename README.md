@@ -26,6 +26,8 @@ bun install
 
 Se estiver usando Windows, é necessário configurar a pasta `C:\bin\` nas variáveis de ambiente para que o executável do Bun esteja no PATH do PowerShell/cmd.
 
+**Primeiro, crie a pasta `C:\bin\` se ela não existir.**
+
 1. Pressione `Win + R`, digite `sysdm.cpl` e pressione Enter
 2. Na aba "Avançado", clique em "Variáveis de Ambiente"
 3. Na seção "Variáveis do sistema", selecione "Path" e clique em "Editar"
@@ -36,7 +38,7 @@ Se estiver usando Windows, é necessário configurar a pasta `C:\bin\` nas vari�
 ## 🎯 Uso
 
 ```bash
-bun run src/index.ts --sprintId "SPRINT_ID" --areaPathId "AREA_PATH_ID" [--assignedTo "Nome <email>"]
+commit-ia-task --sprintId 123 --areaPathId 123 [--assignedTo "Nome <email>"]
 ```
 
 ### Parâmetros
