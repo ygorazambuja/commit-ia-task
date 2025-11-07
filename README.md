@@ -13,6 +13,7 @@ Sistema automatizado para geração de tarefas baseado em diferenças do Git usa
 
 - Bun (runtime JavaScript)
 - Git
+- Conta cadastrada na plataforma OpenAI com créditos disponíveis: https://platform.openai.com/
 - Chave da API OpenAI configurada
 
 ## 🛠 Instalação
@@ -20,6 +21,17 @@ Sistema automatizado para geração de tarefas baseado em diferenças do Git usa
 ```bash
 bun install
 ```
+
+### ⚙️ Configuração Específica do Windows
+
+Se estiver usando Windows, é necessário configurar a pasta `C:\bin\` nas variáveis de ambiente para que o executável do Bun esteja no PATH do PowerShell/cmd.
+
+1. Pressione `Win + R`, digite `sysdm.cpl` e pressione Enter
+2. Na aba "Avançado", clique em "Variáveis de Ambiente"
+3. Na seção "Variáveis do sistema", selecione "Path" e clique em "Editar"
+4. Clique em "Novo" e adicione: `C:\bin\`
+5. Clique em "OK" para salvar as alterações
+6. Reinicie o terminal/PowerShell para aplicar as mudanças
 
 ## 🎯 Uso
 
