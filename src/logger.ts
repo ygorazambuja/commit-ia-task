@@ -2,11 +2,14 @@
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface LogData {
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 class SimpleLogger {
 	private level: LogLevel;
+	private readonly maxStringLength = 140;
+	private readonly maxArrayItems = 3;
+	private readonly maxObjectEntries = 6;
 	private levels: Record<LogLevel, number> = {
 		debug: 0,
 		info: 1,
@@ -20,6 +23,85 @@ class SimpleLogger {
 
 	private shouldLog(level: LogLevel): boolean {
 		return this.levels[level] >= this.levels[this.level];
+	}
+
+	private sanitizeText(text: string): string {
+		return text.replace(/\s+/g, " ").trim();
+	}
+
+	private truncate(text: string): string {
+		return text.length > this.maxStringLength
+			? `${text.slice(0, this.maxStringLength)}...`
+			: text;
+	}
+
+	private formatValue(value: unknown, depth = 0): string {
+		if (value == null) {
+			return String(value);
+		}
+
+		if (value instanceof Error) {
+			return `${value.name}: ${this.truncate(this.sanitizeText(value.message))}`;
+		}
+
+		if (typeof value === "string") {
+			return this.truncate(this.sanitizeText(value));
+		}
+
+		if (typeof value === "number" || typeof value === "boolean") {
+			return String(value);
+		}
+
+		if (Array.isArray(value)) {
+			if (value.length === 0) {
+				return "[]";
+			}
+
+			const items = value
+				.slice(0, this.maxArrayItems)
+				.map((item) => this.formatValue(item, depth + 1));
+			const suffix =
+				value.length > this.maxArrayItems
+					? `...(+${value.length - this.maxArrayItems})`
+					: "";
+			return `[${items.join(", ")}${suffix}]`;
+		}
+
+		if (typeof value === "object") {
+			if (depth >= 2) {
+				return "[obj]";
+			}
+
+			const entries = Object.entries(value as Record<string, unknown>);
+			if (entries.length === 0) {
+				return "{}";
+			}
+
+			const formatted = entries
+				.slice(0, this.maxObjectEntries)
+				.map(
+					([key, entryValue]) =>
+						`${key}:${this.formatValue(entryValue, depth + 1)}`,
+				);
+			const suffix =
+				entries.length > this.maxObjectEntries
+					? ` ...(+${entries.length - this.maxObjectEntries})`
+					: "";
+			return `{${formatted.join(" ")}${suffix}}`;
+		}
+
+		return this.truncate(this.sanitizeText(String(value)));
+	}
+
+	private formatData(data?: LogData): string {
+		if (!data) {
+			return "";
+		}
+
+		const pairs = Object.entries(data).map(
+			([key, value]) => `${key}=${this.formatValue(value)}`,
+		);
+		return pairs.length > 0 ? ` | ${pairs.join(" ")}` : "";
 	}
 
 	private formatMessage(
@@ -37,9 +119,9 @@ class SimpleLogger {
 		const reset = "\x1b[0m";
 
 		const coloredLevel = `${colors[level]}${level.toUpperCase()}${reset}`;
-		const dataStr = data ? ` ${JSON.stringify(data, null, 2)}` : "";
+		const dataStr = this.formatData(data);
 
-		return `[${timestamp}] ${coloredLevel}: ${message}${dataStr}`;
+		return `[${timestamp}] ${coloredLevel} ${this.sanitizeText(message)}${dataStr}`;
 	}
 
 	debug(message: string, data?: LogData): void {

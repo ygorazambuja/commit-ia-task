@@ -1,12 +1,20 @@
+import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
-import { loadConfig, saveConfig } from "./config";
+import {
+	getConfigFilePath,
+	loadConfig,
+	type SavedConfig,
+	saveConfig,
+} from "./config";
 import { buildCsvFile } from "./csv";
 import { getDiff } from "./git";
 import { logger } from "./logger";
 
+const DEFAULT_ASSIGNED_TO = "Ygor Azambuja <ygor.azambuja@infortechms.com.br>";
+const DEFAULT_ITEM_CONTRATO = "Item 1";
 
-if(!Bun.env.OPENAI_API_KEY) {
+if (!Bun.env.OPENAI_API_KEY) {
 	logger.error("❌ Variável de ambiente OPENAI_API_KEY não configurada");
 	process.exit(1);
 }
@@ -22,7 +30,9 @@ const { values } = parseArgs({
 		},
 		assignedTo: {
 			type: "string",
-			default: "Ygor Azambuja <ygor.azambuja@infortechms.com.br>",
+		},
+		itemContrato: {
+			type: "string",
 		},
 	},
 	strict: true,
@@ -34,10 +44,102 @@ logger.info("🚀 Iniciando aplicação Commit IA Task");
 // Tenta carregar configurações salvas se parâmetros não foram fornecidos
 const savedConfig = await loadConfig();
 
-const sprintId = values.sprintId || savedConfig?.sprintId;
-const areaPathId = values.areaPathId || savedConfig?.areaPathId;
-const assignedTo =
-	values.assignedTo || savedConfig?.assignedTo || "Ygor Azambuja <ygor.azambuja@infortechms.com.br>";
+const isInteractiveTerminal = Boolean(
+	process.stdin.isTTY && process.stdout.isTTY,
+);
+
+const formatCurrentValue = (value: string): string => {
+	return value.trim().length > 0 ? value : "(não definido)";
+};
+
+const promptValue = async ({
+	rl,
+	label,
+	currentValue,
+	required = false,
+}: {
+	rl: ReturnType<typeof createInterface>;
+	label: string;
+	currentValue: string;
+	required?: boolean;
+}): Promise<string> => {
+	while (true) {
+		const answer = await rl.question(
+			`${label} [${formatCurrentValue(currentValue)}]: `,
+		);
+		const nextValue = answer.trim() || currentValue;
+
+		if (!required || nextValue.trim().length > 0) {
+			return nextValue;
+		}
+
+		console.error(`O campo "${label}" é obrigatório.`);
+	}
+};
+
+const promptConfig = async (config: SavedConfig): Promise<SavedConfig> => {
+	const rl = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+
+	try {
+		console.log(
+			"\nConfigurações atuais (pressione Enter para manter o valor):",
+		);
+		const sprintId = await promptValue({
+			rl,
+			label: "Sprint ID",
+			currentValue: config.sprintId,
+			required: true,
+		});
+		const areaPathId = await promptValue({
+			rl,
+			label: "Area Path ID",
+			currentValue: config.areaPathId,
+			required: true,
+		});
+		const assignedTo = await promptValue({
+			rl,
+			label: "Assigned To",
+			currentValue: config.assignedTo,
+			required: true,
+		});
+		const itemContrato = await promptValue({
+			rl,
+			label: "Item Contrato",
+			currentValue: config.itemContrato,
+			required: true,
+		});
+
+		return { sprintId, areaPathId, assignedTo, itemContrato };
+	} finally {
+		rl.close();
+	}
+};
+
+let config: SavedConfig = {
+	sprintId: values.sprintId || savedConfig?.sprintId || "",
+	areaPathId: values.areaPathId || savedConfig?.areaPathId || "",
+	assignedTo:
+		values.assignedTo || savedConfig?.assignedTo || DEFAULT_ASSIGNED_TO,
+	itemContrato:
+		values.itemContrato || savedConfig?.itemContrato || DEFAULT_ITEM_CONTRATO,
+};
+
+logger.info("📋 Configuração atual", {
+	sprintId: formatCurrentValue(config.sprintId),
+	areaPathId: formatCurrentValue(config.areaPathId),
+	assignedTo: formatCurrentValue(config.assignedTo),
+	itemContrato: formatCurrentValue(config.itemContrato),
+	configFile: getConfigFilePath(),
+});
+
+if (isInteractiveTerminal) {
+	config = await promptConfig(config);
+}
+
+const { sprintId, areaPathId, assignedTo, itemContrato } = config;
 
 if (!sprintId || !areaPathId) {
 	logger.error("❌ Parâmetros obrigatórios não fornecidos", {
@@ -58,6 +160,7 @@ logger.info("📋 Configurações validadas", {
 	sprintId,
 	areaPathId,
 	assignedTo,
+	itemContrato,
 });
 
 // Salva configurações para próxima execução
@@ -65,6 +168,7 @@ await saveConfig({
 	sprintId,
 	areaPathId,
 	assignedTo,
+	itemContrato,
 });
 
 try {
@@ -83,8 +187,9 @@ try {
 	await buildCsvFile({
 		files,
 		areaId: areaPathId,
-		assignedTo: assignedTo,
-		sprintId: sprintId,
+		assignedTo,
+		sprintId,
+		itemContrato,
 	});
 
 	logger.info("✅ Processo finalizado com sucesso!");

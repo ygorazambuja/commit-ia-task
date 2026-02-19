@@ -19,13 +19,23 @@ const writeHeader = () => [
 	"Description",
 	"Estimate Made",
 	"Remaining Work",
+	"Original Estimate",
 ];
+
+const sanitizeCsvText = (value: string) =>
+	value
+		.replace(/\r\n/g, " ")
+		.replace(/\n/g, " ")
+		.replace(/\r/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
 
 export const buildCsvFile = async ({
 	files,
 	assignedTo,
 	areaId,
 	sprintId,
+	itemContrato,
 }: BuildCsvInput) => {
 	logger.info("📝 Iniciando geração do arquivo CSV");
 
@@ -45,6 +55,7 @@ export const buildCsvFile = async ({
 			assignedTo,
 			areaId,
 			sprintId,
+			itemContrato,
 		},
 	});
 
@@ -56,20 +67,20 @@ export const buildCsvFile = async ({
 	const records = tasks.map((t) => ({
 		ID: "",
 		"Work Item Type": "Task",
-		Title: t.title,
-		"Assigned To": assignedTo,
+		Title: sanitizeCsvText(t.title),
+		"Assigned To": sanitizeCsvText(assignedTo),
 		State: "To Do",
 		"Area ID": areaId,
 		"Iteration ID": sprintId,
-		"Item Contrato": "Item 1",
+		"Item Contrato": sanitizeCsvText(itemContrato),
 		"ID SPF": 19,
 		UST: 4,
-		Complexidade: "ÚNICA",
+		Complexidade: t.complexidade,
 		Activity: "Development",
-		Description: t.description,
-		"Estimate Made": 1,
-		"Remaining Work": 1,
-		"Original Estimated": 1,
+		Description: sanitizeCsvText(t.description),
+		"Estimate Made": t.estimateMade,
+		"Remaining Work": t.estimateMade,
+		"Original Estimate": t.estimateMade,
 	}));
 
 	logger.debug("📋 Estrutura dos registros", {
@@ -105,4 +116,5 @@ type BuildCsvInput = {
 	assignedTo: string;
 	areaId: string;
 	sprintId: string;
+	itemContrato: string;
 };

@@ -7,11 +7,20 @@ const openaiApiClient = createOpenAI({
 	apiKey: Bun.env.OPENAI_API_KEY,
 });
 
+export const allowedComplexities = ["ALTA", "MEDIA", "BAIXA", "ÚNICA"] as const;
+export type Complexity = (typeof allowedComplexities)[number];
+
 export const expectedOutputTask = z.object({
 	tasks: z.array(
 		z.object({
 			title: z.string().describe("O titulo da tarefa"),
 			description: z.string().describe("A descrição da tarefa"),
+			complexidade: z
+				.string()
+				.describe("A complexidade da tarefa: ALTA, MEDIA, BAIXA ou ÚNICA"),
+			estimateMade: z
+				.number()
+				.describe("Estimativa da tarefa como número inteiro entre 1 e 8"),
 		}),
 	),
 	fullFilePath: z.string().describe("O caminho completo do arquivo"),
@@ -34,6 +43,8 @@ export const createTasks = async ({ file, diff }: Input) => {
 			tasks: result.tasks.map((t) => ({
 				title: t.title,
 				descriptionLength: t.description.length,
+				complexidade: t.complexidade,
+				estimateMade: t.estimateMade,
 			})),
 		});
 
@@ -65,9 +76,20 @@ const getOpenaiResponse = async ({ file, diff }: Input) => {
 			messages: [
 				{
 					role: "system",
-					content: `Você receberá um arquivo, e um diff, crie quantas tarefas forem necessarias para explicar tudo o que ocorreu nas alterações dos arquivos, crie um titulo e uma descrição. 
-              Leve em conta a extensão e nome do arquivo que foram enviados, não retorne o markdown, retorne apenas o texto puro. Retorne sempre o texto em portugues brasileiro, se a task for muito grande divida em mais de uma task.
-              Evite palavras como 'Inutil', 'Refatoração' troque elas por Reprocessamento, ou algo que seja menos agressivo e mais agradavel ao cliente
+					content: `Você receberá um arquivo e um diff. Gere poucas tarefas, agrupando alterações relacionadas em uma mesma tarefa sempre que fizer sentido.
+              Priorize qualidade sobre quantidade: somente separe em múltiplas tarefas quando houver contextos claramente diferentes.
+              Para cada tarefa, gere: titulo, descrição, complexidade e estimateMade.
+              A descrição deve ser completa e didática, explicando: o que mudou, por que mudou, impacto técnico e resultado esperado.
+              Leve em conta a extensão e o nome do arquivo enviados. Não retorne markdown, apenas texto puro.
+              Retorne sempre em português brasileiro.
+              Evite palavras como 'Inutil' e 'Refatoração'; prefira termos como Reprocessamento ou alternativas mais agradáveis ao cliente.
+              A complexidade deve ser obrigatoriamente um desses valores: ALTA, MEDIA, BAIXA, ÚNICA.
+              Defina complexidade assim:
+              ALTA = mudança ampla com várias regras/fluxos, alto risco ou forte impacto.
+              MEDIA = mudança moderada com impacto controlado e algumas regras relevantes.
+              BAIXA = ajuste pontual e simples, baixo risco e baixo impacto.
+              ÚNICA = tarefa isolada e autocontida, sem dependências relevantes com outras mudanças.
+              O estimateMade deve ser obrigatoriamente um número inteiro entre 1 e 8, coerente com a complexidade.
               `,
 				},
 				{
@@ -86,15 +108,23 @@ const getOpenaiResponse = async ({ file, diff }: Input) => {
 			tasksCount: response.object.tasks.length,
 			responseStructure: {
 				hasFullFilePath: !!response.object.fullFilePath,
-				tasksStructure: response.object.tasks.map((t) => ({
-					hasTitleAndDescription: !!(t.title && t.description),
-					titleLength: t.title?.length || 0,
-					descriptionLength: t.description?.length || 0,
-				})),
+				tasksStructure: response.object.tasks.map((rawTask) => {
+					const task = sanitizeTask(rawTask);
+					return {
+						hasTitleAndDescription: !!(task.title && task.description),
+						titleLength: task.title.length,
+						descriptionLength: task.description.length,
+						complexidade: task.complexidade,
+						estimateMade: task.estimateMade,
+					};
+				}),
 			},
 		});
 
-		return response.object;
+		return {
+			fullFilePath: response.object.fullFilePath,
+			tasks: response.object.tasks.map(sanitizeTask),
+		};
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error("🚨 Erro na chamada OpenAI", {
@@ -117,3 +147,36 @@ type Input = {
 	file: string;
 	diff: string;
 };
+
+function sanitizeTask(
+	task: z.infer<typeof expectedOutputTask>["tasks"][number],
+) {
+	return {
+		...task,
+		complexidade: normalizeComplexidade(task.complexidade),
+		estimateMade: normalizeEstimate(task.estimateMade),
+	};
+}
+
+function normalizeEstimate(value: unknown): number {
+	const parsed = typeof value === "number" ? value : Number(value);
+
+	if (!Number.isInteger(parsed) || parsed < 1 || parsed > 8) {
+		return 1;
+	}
+
+	return parsed;
+}
+
+function normalizeComplexidade(value: unknown): Complexity {
+	if (typeof value !== "string") {
+		return "ÚNICA";
+	}
+
+	const normalized = value.toUpperCase().trim();
+	if (allowedComplexities.includes(normalized as Complexity)) {
+		return normalized as Complexity;
+	}
+
+	return "ÚNICA";
+}
