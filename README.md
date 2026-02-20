@@ -52,7 +52,7 @@ commit-ia-task [--sprintId 123 --areaPathId 123 --assignedTo "Nome <email>" --it
 
 - O CLI salva `sprintId`, `areaPathId`, `assignedTo` e `itemContrato` em um arquivo de configuração persistente por sistema operacional.
 - Em toda execução, os valores atuais são exibidos no terminal.
-- Em terminal interativo, o comando sempre permite editar os três campos:
+- Em terminal interativo, o comando sempre permite editar os quatro campos:
   - pressione `Enter` para manter o valor atual
   - digite um novo valor para atualizar e persistir
 - Se você passar flags (`--sprintId`, `--areaPathId`, `--assignedTo`, `--itemContrato`), esses valores têm prioridade e também ficam salvos para as próximas execuções.
@@ -67,13 +67,13 @@ Configure o nível de logging através da variável de ambiente `LOG_LEVEL`:
 
 ```bash
 # Logs básicos (padrão)
-LOG_LEVEL=info bun run src/index.ts --sprintId "123" --areaPathId "456"
+LOG_LEVEL=info bun run src/index.ts --sprintId "123" --areaPathId "456" --itemContrato "Item 1"
 
 # Logs detalhados para debug
-LOG_LEVEL=debug bun run src/index.ts --sprintId "123" --areaPathId "456"
+LOG_LEVEL=debug bun run src/index.ts --sprintId "123" --areaPathId "456" --itemContrato "Item 1"
 
 # Apenas erros críticos  
-LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
+LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456" --itemContrato "Item 1"
 ```
 
 ### 📝 Tipos de Log
@@ -116,7 +116,8 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 
 ```
 🚀 Iniciando aplicação Commit IA Task
-📋 Configurações validadas { sprintId: "123", areaPathId: "456", assignedTo: "..." }
+📋 Configuração atual { sprintId: "123", areaPathId: "456", assignedTo: "...", itemContrato: "Item 1", configFile: "..." }
+📋 Configurações validadas { sprintId: "123", areaPathId: "456", assignedTo: "...", itemContrato: "Item 1" }
 🔍 Iniciando análise de arquivos alterados { gitFolder: "/path/to/project" }
 📁 Arquivos encontrados { count: 3, files: ["src/index.ts", "src/api.ts", "README.md"] }
 🤖 Iniciando criação de tasks para arquivo { fileName: "src/index.ts" }
