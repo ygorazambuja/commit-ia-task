@@ -80,6 +80,8 @@ const getOpenaiResponse = async ({ file, diff }: Input) => {
               Priorize qualidade sobre quantidade: somente separe em múltiplas tarefas quando houver contextos claramente diferentes.
               Para cada tarefa, gere: titulo, descrição, complexidade e estimateMade.
               A descrição deve ser completa e didática, explicando: o que mudou, por que mudou, impacto técnico e resultado esperado.
+              Escreva a descrição de forma direta, sem frases de enquadramento como "olhando o diff", "no template X", "houve uma mudança significativa" ou variações equivalentes.
+              Não descreva o processo de análise; descreva apenas a mudança objetiva e seus efeitos.
               Leve em conta a extensão e o nome do arquivo enviados. Não retorne markdown, apenas texto puro.
               Retorne sempre em português brasileiro.
               Evite palavras como 'Inutil' e 'Refatoração'; prefira termos como Reprocessamento ou alternativas mais agradáveis ao cliente.

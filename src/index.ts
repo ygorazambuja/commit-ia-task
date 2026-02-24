@@ -172,8 +172,8 @@ await saveConfig({
 });
 
 try {
-	const pwd = await $`pwd`.text();
-	logger.debug("📁 Diretório de trabalho", { pwd: pwd.trim() });
+	const pwd = (await $`pwd`.text()).trim();
+	logger.debug("📁 Diretório de trabalho", { pwd });
 
 	logger.info("🔍 Iniciando análise de diferenças do Git...");
 	const files = await getDiff(pwd);
