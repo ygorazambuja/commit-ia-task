@@ -2,7 +2,11 @@ import { existsSync } from "node:fs";
 import { createObjectCsvWriter } from "csv-writer";
 import type { z } from "zod";
 import type { expectedOutputTask } from "./ai";
-import type { TaskType } from "./ai-schema";
+import {
+	type Complexity,
+	normalizeComplexidade,
+	type TaskType,
+} from "./ai-schema";
 import { logger } from "./logger";
 
 const SPF_ID_BY_TASK_TYPE: Record<TaskType, number> = {
@@ -10,6 +14,16 @@ const SPF_ID_BY_TASK_TYPE: Record<TaskType, number> = {
 	FRONTEND: 19,
 	TESTES: 22,
 };
+
+const UST_BY_COMPLEXITY: Record<Complexity, number> = {
+	BAIXA: 8,
+	MEDIA: 24,
+	ALTA: 40,
+	ÚNICA: 8,
+};
+
+const getUst = (complexity: string) =>
+	UST_BY_COMPLEXITY[normalizeComplexidade(complexity)];
 
 const writeHeader = () => [
 	"ID",
@@ -56,7 +70,7 @@ export const buildTaskRecords = ({
 			"Iteration ID": sprintId,
 			"Item Contrato": sanitizeCsvText(itemContrato),
 			"ID SPF": SPF_ID_BY_TASK_TYPE[t.tipo],
-			UST: 4,
+			UST: getUst(t.complexidade),
 			Complexidade: t.complexidade,
 			Activity: "Development",
 			Description: sanitizeCsvText(t.description),

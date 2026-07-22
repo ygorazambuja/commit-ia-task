@@ -53,8 +53,59 @@ describe("buildCsvFile", () => {
 			"Task,Criar CSV,Pessoa Responsavel <dev@example.com>",
 		);
 		expect(csv).toContain("AREA-1,SPRINT-2,Item Contrato");
-		expect(csv).toContain("Item Contrato,17,4,MEDIA");
+		expect(csv).toContain("Item Contrato,17,24,MEDIA");
 		expect(csv).toContain("MEDIA,Development,Linha 1 Linha 2,5,5,5");
+	});
+
+	test("maps complexities to their UST values", async () => {
+		await buildCsvFile({
+			assignedTo: "Pessoa <dev@example.com>",
+			areaId: "AREA-1",
+			sprintId: "SPRINT-2",
+			itemContrato: "Item 1",
+			files: [
+				{
+					fullFilePath: "/repo/src/example.ts",
+					tasks: [
+						{
+							title: "Fácil",
+							description: "Ajuste simples",
+							tipo: "BACKEND",
+							complexidade: "BAIXA",
+							estimateMade: 1,
+						},
+						{
+							title: "Médio",
+							description: "Ajuste moderado",
+							tipo: "BACKEND",
+							complexidade: "MEDIA",
+							estimateMade: 3,
+						},
+						{
+							title: "Difícil",
+							description: "Ajuste complexo",
+							tipo: "BACKEND",
+							complexidade: "ALTA",
+							estimateMade: 5,
+						},
+						{
+							title: "Única",
+							description: "Tarefa isolada",
+							tipo: "BACKEND",
+							complexidade: "ÚNICA",
+							estimateMade: 1,
+						},
+					],
+				},
+			],
+		});
+
+		const csvFiles = Array.from(new Bun.Glob("tasks-*.csv").scanSync(tempDir));
+		const csv = await readFile(join(tempDir, csvFiles[0]), "utf8");
+		expect(csv).toContain("Item 1,17,8,BAIXA");
+		expect(csv).toContain("Item 1,17,24,MEDIA");
+		expect(csv).toContain("Item 1,17,40,ALTA");
+		expect(csv).toContain("Item 1,17,8,ÚNICA");
 	});
 
 	test("maps task types to their SPF IDs", async () => {
