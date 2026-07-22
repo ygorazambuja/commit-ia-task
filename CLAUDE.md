@@ -12,11 +12,18 @@ The system runs on **Bun** runtime (not Node.js) and uses TypeScript with strict
 
 ### Development
 ```bash
-# Run the application
+# Run the application (OpenAI API key)
 bun run src/index.ts --sprintId "SPRINT_ID" --areaPathId "AREA_PATH_ID" [--assignedTo "Nome <email>"]
+
+# Run with Codex subscription (requires `codex login`)
+bun run src/index.ts --aiProvider codex --sprintId "SPRINT_ID" --areaPathId "AREA_PATH_ID"
 
 # Format code
 bun run format
+
+# Type-check and test
+bun run typecheck
+bun test
 
 # Install dependencies
 bun install
@@ -36,7 +43,8 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 
 ## Environment Requirements
 
-- **OPENAI_API_KEY**: Required environment variable for OpenAI API access
+- **OPENAI_API_KEY**: Required when using `--aiProvider openai` (default)
+- **CODEX_MODEL**: Optional model override when using `--aiProvider codex`
 - **LOG_LEVEL**: Optional, controls logging verbosity (debug, info, warn, error)
 
 ## Architecture Overview
@@ -44,7 +52,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 ### Data Flow
 1. **index.ts** → Entry point that validates arguments and orchestrates the process
 2. **git.ts** → Discovers modified/new files and retrieves Git diffs
-3. **ai.ts** → Sends file diffs to OpenAI API for task generation
+3. **ai.ts** → Routes file diffs to OpenAI API or Codex SDK for task generation
 4. **csv.ts** → Transforms generated tasks into CSV format
 5. **logger.ts** → Provides structured, colored logging throughout
 
@@ -54,28 +62,33 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 - CLI argument parsing using `node:util.parseArgs`
 - Required parameters: `--sprintId`, `--areaPathId`
 - Optional parameter: `--assignedTo` (defaults to Ygor Azambuja)
-- Validates OPENAI_API_KEY environment variable
+- Optional parameter: `--aiProvider` (`openai` or `codex`, default: `openai`)
+- Validates credentials based on provider (`OPENAI_API_KEY` for openai, Codex CLI for codex)
 
 **git.ts** (src/git.ts)
 - `getDiff()`: Main function that orchestrates file discovery and task generation
-- `getAlteredFileNames()`: Uses `git diff --name-only` and `git ls-files --others --exclude-standard` to find modified and new files
+- Uses NUL-delimited `git diff` and `git status` output to find modified, staged, renamed, and new files safely
 - Automatically excludes lock files: pnpm-lock.yaml, bun.lockb, package-lock.json
 - Processes files in parallel with `Promise.allSettled()` for fault tolerance
 - Automatically stages successfully processed files with `git add`
 
 **ai.ts** (src/ai.ts)
-- Uses `@ai-sdk/openai` and `ai` SDK (not the raw OpenAI client)
-- Model: `gpt-5-nano` (Note: likely should be `gpt-4o-mini-2024-07-18` based on comments)
-- `createTasks()`: Main interface for task generation
+- Routes task generation to OpenAI (`@ai-sdk/openai` + `ai` SDK) or Codex (`@openai/codex-sdk`)
+- `createTasks()`: Main interface for task generation, accepts optional `{ provider }`
 - Schema validation with Zod: expects `{ tasks: [{ title, description, complexidade, estimateMade }], fullFilePath }`
 - Prompts are in Portuguese (Brazilian)
 - AI instructions emphasize avoiding negative words like "Inutil" or "Refatoração"
 
+**ai-codex.ts** (src/ai-codex.ts)
+- Uses `@openai/codex-sdk` with structured output via `outputSchema`
+- Authenticates via Codex CLI session (`codex login`), not API key
+- Runs with `sandboxMode: read-only` and `approvalPolicy: never`
+
 **csv.ts** (src/csv.ts)
 - Uses `csv-writer` library
-- Generates files with timestamp format: `tasks-{day}-{month}-{hour}-{minute}.csv`
-- Values for contract and activity fields remain fixed:
-  - "Item Contrato": "Item 1"
+- Generates files with timestamp format `tasks-{day}-{month}-{hour}-{minute}.csv`, adding a numeric suffix when that name already exists
+- Values for contract and activity fields:
+  - "Item Contrato": configurable, with default "Item 1"
   - "ID SPF": 19
   - "UST": 4
   - "Activity": "Development"
@@ -83,7 +96,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
   - "Complexidade": `ALTA | MEDIA | BAIXA | ÚNICA`
   - "Estimate Made": integer from 1 to 8
   - "Remaining Work": same value as "Estimate Made"
-  - "Original Estimated": same value as "Estimate Made"
+  - "Original Estimate": same value as "Estimate Made"
 - Fallback rule:
   - Invalid estimates are normalized to 1
 - CSV headers match Azure DevOps import format
@@ -107,4 +120,4 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 - All file processing happens in parallel for performance
 - Failed file processing doesn't stop the entire pipeline - errors are logged and tracked
 - Generated CSV files are designed for Azure DevOps work item import
-- The AI model reference in the code (`gpt-5-nano`) may need updating to match the actual model being used
+- The OpenAI provider currently uses `gpt-5-nano`

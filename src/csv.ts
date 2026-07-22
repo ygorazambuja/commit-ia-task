@@ -1,7 +1,15 @@
+import { existsSync } from "node:fs";
 import { createObjectCsvWriter } from "csv-writer";
 import type { z } from "zod";
 import type { expectedOutputTask } from "./ai";
+import type { TaskType } from "./ai-schema";
 import { logger } from "./logger";
+
+const SPF_ID_BY_TASK_TYPE: Record<TaskType, number> = {
+	BACKEND: 17,
+	FRONTEND: 19,
+	TESTES: 22,
+};
 
 const writeHeader = () => [
 	"ID",
@@ -30,6 +38,35 @@ const sanitizeCsvText = (value: string) =>
 		.replace(/\s+/g, " ")
 		.trim();
 
+export const buildTaskRecords = ({
+	files,
+	assignedTo,
+	areaId,
+	sprintId,
+	itemContrato,
+}: BuildCsvInput): TaskRecord[] => {
+	return files.flatMap(({ tasks }) =>
+		tasks.map((t) => ({
+			ID: "",
+			"Work Item Type": "Task",
+			Title: sanitizeCsvText(t.title),
+			"Assigned To": sanitizeCsvText(assignedTo),
+			State: "To Do",
+			"Area ID": areaId,
+			"Iteration ID": sprintId,
+			"Item Contrato": sanitizeCsvText(itemContrato),
+			"ID SPF": SPF_ID_BY_TASK_TYPE[t.tipo],
+			UST: 4,
+			Complexidade: t.complexidade,
+			Activity: "Development",
+			Description: sanitizeCsvText(t.description),
+			"Estimate Made": t.estimateMade,
+			"Remaining Work": t.estimateMade,
+			"Original Estimate": t.estimateMade,
+		})),
+	);
+};
+
 export const buildCsvFile = async ({
 	files,
 	assignedTo,
@@ -39,17 +76,29 @@ export const buildCsvFile = async ({
 }: BuildCsvInput) => {
 	logger.info("📝 Iniciando geração do arquivo CSV");
 
-	const tasks = files.flatMap(({ tasks }) => tasks);
+	const records = buildTaskRecords({
+		files,
+		assignedTo,
+		areaId,
+		sprintId,
+		itemContrato,
+	});
 	const currentDate = new Date();
 	const formattedDate = `${currentDate.getDate()}-${
 		currentDate.getMonth() + 1
 	}-${currentDate.getHours()}-${currentDate.getMinutes()}`;
 
-	const fileName = `tasks-${formattedDate}.csv`;
+	const baseFileName = `tasks-${formattedDate}`;
+	let fileName = `${baseFileName}.csv`;
+	let suffix = 1;
+	while (existsSync(fileName)) {
+		fileName = `${baseFileName}-${suffix}.csv`;
+		suffix += 1;
+	}
 
 	logger.info("📊 Dados para CSV preparados", {
 		totalFiles: files.length,
-		totalTasks: tasks.length,
+		totalTasks: records.length,
 		fileName,
 		config: {
 			assignedTo,
@@ -63,25 +112,6 @@ export const buildCsvFile = async ({
 		path: fileName,
 		header: writeHeader().map((header) => ({ id: header, title: header })),
 	});
-
-	const records = tasks.map((t) => ({
-		ID: "",
-		"Work Item Type": "Task",
-		Title: sanitizeCsvText(t.title),
-		"Assigned To": sanitizeCsvText(assignedTo),
-		State: "To Do",
-		"Area ID": areaId,
-		"Iteration ID": sprintId,
-		"Item Contrato": sanitizeCsvText(itemContrato),
-		"ID SPF": 19,
-		UST: 4,
-		Complexidade: t.complexidade,
-		Activity: "Development",
-		Description: sanitizeCsvText(t.description),
-		"Estimate Made": t.estimateMade,
-		"Remaining Work": t.estimateMade,
-		"Original Estimate": t.estimateMade,
-	}));
 
 	logger.debug("📋 Estrutura dos registros", {
 		recordsCount: records.length,
@@ -117,4 +147,23 @@ type BuildCsvInput = {
 	areaId: string;
 	sprintId: string;
 	itemContrato: string;
+};
+
+export type TaskRecord = {
+	ID: string;
+	"Work Item Type": "Task";
+	Title: string;
+	"Assigned To": string;
+	State: "To Do";
+	"Area ID": string;
+	"Iteration ID": string;
+	"Item Contrato": string;
+	"ID SPF": number;
+	UST: number;
+	Complexidade: string;
+	Activity: "Development";
+	Description: string;
+	"Estimate Made": number;
+	"Remaining Work": number;
+	"Original Estimate": number;
 };

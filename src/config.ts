@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import { logger } from "./logger";
 
 export interface SavedConfig {
@@ -9,11 +10,27 @@ export interface SavedConfig {
 	areaPathId: string;
 	assignedTo: string;
 	itemContrato: string;
+	azureOrganization: string;
+	azureProject: string;
 }
 
 const APP_NAME = "commit-ia-task";
+const CONFIG_DIR_ENV = "COMMIT_IA_TASK_CONFIG_DIR";
+const savedConfigSchema = z.object({
+	sprintId: z.string(),
+	areaPathId: z.string(),
+	assignedTo: z.string(),
+	itemContrato: z.string(),
+	azureOrganization: z.string().default(""),
+	azureProject: z.string().default(""),
+});
 
 const getConfigDir = (): string => {
+	const configuredDir = process.env[CONFIG_DIR_ENV];
+	if (configuredDir) {
+		return configuredDir;
+	}
+
 	if (process.platform === "win32") {
 		const appData = process.env.APPDATA;
 		return appData
@@ -60,7 +77,7 @@ export async function loadConfig(): Promise<SavedConfig | null> {
 
 		const file = Bun.file(configFile);
 		const content = await file.text();
-		const config = JSON.parse(content) as SavedConfig;
+		const config = savedConfigSchema.parse(JSON.parse(content));
 
 		logger.debug("📂 Configurações carregadas do cache", { config });
 		return config;

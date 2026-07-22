@@ -2,22 +2,24 @@ import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
 import {
+	type AiProvider,
+	resolveAiProvider,
+	setAiProvider,
+	validateAiProviderSetup,
+} from "./ai-provider";
+import { createAzureTasks, getAzureDevopsDefaults } from "./azure-devops";
+import {
 	getConfigFilePath,
 	loadConfig,
 	type SavedConfig,
 	saveConfig,
 } from "./config";
-import { buildCsvFile } from "./csv";
+import { buildCsvFile, buildTaskRecords } from "./csv";
 import { getDiff } from "./git";
 import { logger } from "./logger";
 
 const DEFAULT_ASSIGNED_TO = "Ygor Azambuja <ygor.azambuja@infortechms.com.br>";
 const DEFAULT_ITEM_CONTRATO = "Item 1";
-
-if (!Bun.env.OPENAI_API_KEY) {
-	logger.error("❌ Variável de ambiente OPENAI_API_KEY não configurada");
-	process.exit(1);
-}
 
 const { values } = parseArgs({
 	args: Bun.argv,
@@ -34,10 +36,36 @@ const { values } = parseArgs({
 		itemContrato: {
 			type: "string",
 		},
+		aiProvider: {
+			type: "string",
+		},
+		createAzureTasks: {
+			type: "boolean",
+		},
+		azureOrganization: {
+			type: "string",
+		},
+		azureProject: {
+			type: "string",
+		},
 	},
 	strict: true,
 	allowPositionals: true,
 });
+
+let aiProvider: AiProvider;
+try {
+	aiProvider = resolveAiProvider(values.aiProvider);
+} catch (error) {
+	logger.error("❌ Provedor de IA inválido", {
+		aiProvider: values.aiProvider,
+		error: error instanceof Error ? error.message : String(error),
+	});
+	process.exit(1);
+}
+
+setAiProvider(aiProvider);
+await validateAiProviderSetup(aiProvider);
 
 logger.info("🚀 Iniciando aplicação Commit IA Task");
 
@@ -111,12 +139,31 @@ const promptConfig = async (config: SavedConfig): Promise<SavedConfig> => {
 			currentValue: config.itemContrato,
 			required: true,
 		});
+		const azureOrganization = await promptValue({
+			rl,
+			label: "Azure Organization",
+			currentValue: config.azureOrganization,
+		});
+		const azureProject = await promptValue({
+			rl,
+			label: "Azure Project",
+			currentValue: config.azureProject,
+		});
 
-		return { sprintId, areaPathId, assignedTo, itemContrato };
+		return {
+			sprintId,
+			areaPathId,
+			assignedTo,
+			itemContrato,
+			azureOrganization,
+			azureProject,
+		};
 	} finally {
 		rl.close();
 	}
 };
+
+const azureDefaults = await getAzureDevopsDefaults();
 
 let config: SavedConfig = {
 	sprintId: values.sprintId || savedConfig?.sprintId || "",
@@ -125,6 +172,12 @@ let config: SavedConfig = {
 		values.assignedTo || savedConfig?.assignedTo || DEFAULT_ASSIGNED_TO,
 	itemContrato:
 		values.itemContrato || savedConfig?.itemContrato || DEFAULT_ITEM_CONTRATO,
+	azureOrganization:
+		values.azureOrganization ||
+		savedConfig?.azureOrganization ||
+		azureDefaults.organization,
+	azureProject:
+		values.azureProject || savedConfig?.azureProject || azureDefaults.project,
 };
 
 logger.info("📋 Configuração atual", {
@@ -132,6 +185,8 @@ logger.info("📋 Configuração atual", {
 	areaPathId: formatCurrentValue(config.areaPathId),
 	assignedTo: formatCurrentValue(config.assignedTo),
 	itemContrato: formatCurrentValue(config.itemContrato),
+	azureOrganization: formatCurrentValue(config.azureOrganization),
+	azureProject: formatCurrentValue(config.azureProject),
 	configFile: getConfigFilePath(),
 });
 
@@ -139,7 +194,14 @@ if (isInteractiveTerminal) {
 	config = await promptConfig(config);
 }
 
-const { sprintId, areaPathId, assignedTo, itemContrato } = config;
+const {
+	sprintId,
+	areaPathId,
+	assignedTo,
+	itemContrato,
+	azureOrganization,
+	azureProject,
+} = config;
 
 if (!sprintId || !areaPathId) {
 	logger.error("❌ Parâmetros obrigatórios não fornecidos", {
@@ -161,6 +223,10 @@ logger.info("📋 Configurações validadas", {
 	areaPathId,
 	assignedTo,
 	itemContrato,
+	aiProvider,
+	createAzureTasks: values.createAzureTasks,
+	azureOrganization: formatCurrentValue(azureOrganization),
+	azureProject: formatCurrentValue(azureProject),
 });
 
 // Salva configurações para próxima execução
@@ -169,6 +235,8 @@ await saveConfig({
 	areaPathId,
 	assignedTo,
 	itemContrato,
+	azureOrganization,
+	azureProject,
 });
 
 try {
@@ -176,7 +244,7 @@ try {
 	logger.debug("📁 Diretório de trabalho", { pwd });
 
 	logger.info("🔍 Iniciando análise de diferenças do Git...");
-	const files = await getDiff(pwd);
+	const files = await getDiff(pwd, { aiProvider });
 
 	logger.info("📊 Análise concluída", {
 		totalFiles: files.length,
@@ -191,6 +259,22 @@ try {
 		sprintId,
 		itemContrato,
 	});
+
+	if (values.createAzureTasks) {
+		const records = buildTaskRecords({
+			files,
+			areaId: areaPathId,
+			assignedTo,
+			sprintId,
+			itemContrato,
+		});
+
+		await createAzureTasks({
+			records,
+			organization: azureOrganization,
+			project: azureProject,
+		});
+	}
 
 	logger.info("✅ Processo finalizado com sucesso!");
 } catch (error) {

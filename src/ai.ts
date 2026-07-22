@@ -1,48 +1,60 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject } from "ai";
-import { z } from "zod";
+import { getCodexResponse } from "./ai-codex";
+import {
+	buildTaskGenerationPrompt,
+	buildTaskGenerationSystemPrompt,
+	type TaskGenerationInput,
+} from "./ai-prompt";
+import { type AiProvider, getAiProvider } from "./ai-provider";
+import { expectedOutputTask, sanitizeTask } from "./ai-schema";
 import { formatDuration, logger } from "./logger";
+
+export {
+	allowedComplexities,
+	type Complexity,
+	expectedOutputTask,
+	normalizeComplexidade,
+	normalizeEstimate,
+	sanitizeTask,
+	type TaskType,
+	taskTypes,
+} from "./ai-schema";
 
 const openaiApiClient = createOpenAI({
 	apiKey: Bun.env.OPENAI_API_KEY,
 });
 
-export const allowedComplexities = ["ALTA", "MEDIA", "BAIXA", "ÚNICA"] as const;
-export type Complexity = (typeof allowedComplexities)[number];
+export type CreateTasksOptions = {
+	provider?: AiProvider;
+};
 
-export const expectedOutputTask = z.object({
-	tasks: z.array(
-		z.object({
-			title: z.string().describe("O titulo da tarefa"),
-			description: z.string().describe("A descrição da tarefa"),
-			complexidade: z
-				.string()
-				.describe("A complexidade da tarefa: ALTA, MEDIA, BAIXA ou ÚNICA"),
-			estimateMade: z
-				.number()
-				.describe("Estimativa da tarefa como número inteiro entre 1 e 8"),
-		}),
-	),
-	fullFilePath: z.string().describe("O caminho completo do arquivo"),
-});
-
-export const createTasks = async ({ file, diff }: Input) => {
+export const createTasks = async (
+	{ file, diff }: TaskGenerationInput,
+	options: CreateTasksOptions = {},
+) => {
+	const provider = options.provider ?? getAiProvider();
 	const fileName = file.split("/").pop() || file;
-	logger.info("🤖 Processando arquivo com IA", { fileName });
+	logger.info("🤖 Processando arquivo com IA", { fileName, provider });
 
 	const startTime = Date.now();
 
 	try {
-		const result = await getOpenaiResponse({ file, diff });
+		const result =
+			provider === "codex"
+				? await getCodexResponse({ file, diff })
+				: await getOpenaiResponse({ file, diff });
 		const duration = Date.now() - startTime;
 
 		logger.info("✅ IA processou arquivo com sucesso", {
 			fileName,
+			provider,
 			tasksGenerated: result.tasks.length,
 			duration: formatDuration(duration),
 			tasks: result.tasks.map((t) => ({
 				title: t.title,
 				descriptionLength: t.description.length,
+				tipo: t.tipo,
 				complexidade: t.complexidade,
 				estimateMade: t.estimateMade,
 			})),
@@ -53,6 +65,7 @@ export const createTasks = async ({ file, diff }: Input) => {
 		const duration = Date.now() - startTime;
 		logger.error("❌ Erro ao processar arquivo com IA", {
 			fileName,
+			provider,
 			duration: formatDuration(duration),
 			error: error instanceof Error ? error.message : String(error),
 		});
@@ -60,12 +73,12 @@ export const createTasks = async ({ file, diff }: Input) => {
 	}
 };
 
-const getOpenaiResponse = async ({ file, diff }: Input) => {
+const getOpenaiResponse = async ({ file, diff }: TaskGenerationInput) => {
 	const fileName = file.split("/").pop() || file;
 
 	logger.debug("📤 Enviando requisição para OpenAI", {
 		fileName,
-		model: "gpt-4o-mini-2024-07-18",
+		model: "gpt-5-nano",
 		diffLength: diff.length,
 	});
 
@@ -76,31 +89,11 @@ const getOpenaiResponse = async ({ file, diff }: Input) => {
 			messages: [
 				{
 					role: "system",
-					content: `Você receberá um arquivo e um diff. Gere poucas tarefas, agrupando alterações relacionadas em uma mesma tarefa sempre que fizer sentido.
-              Priorize qualidade sobre quantidade: somente separe em múltiplas tarefas quando houver contextos claramente diferentes.
-              Para cada tarefa, gere: titulo, descrição, complexidade e estimateMade.
-              A descrição deve ser completa e didática, explicando: o que mudou, por que mudou, impacto técnico e resultado esperado.
-              Escreva a descrição de forma direta, sem frases de enquadramento como "olhando o diff", "no template X", "houve uma mudança significativa" ou variações equivalentes.
-              Não descreva o processo de análise; descreva apenas a mudança objetiva e seus efeitos.
-              Leve em conta a extensão e o nome do arquivo enviados. Não retorne markdown, apenas texto puro.
-              Retorne sempre em português brasileiro.
-              Evite palavras como 'Inutil' e 'Refatoração'; prefira termos como Reprocessamento ou alternativas mais agradáveis ao cliente.
-              A complexidade deve ser obrigatoriamente um desses valores: ALTA, MEDIA, BAIXA, ÚNICA.
-              Defina complexidade assim:
-              ALTA = mudança ampla com várias regras/fluxos, alto risco ou forte impacto.
-              MEDIA = mudança moderada com impacto controlado e algumas regras relevantes.
-              BAIXA = ajuste pontual e simples, baixo risco e baixo impacto.
-              ÚNICA = tarefa isolada e autocontida, sem dependências relevantes com outras mudanças.
-              O estimateMade deve ser obrigatoriamente um número inteiro entre 1 e 8, coerente com a complexidade.
-              `,
+					content: buildTaskGenerationSystemPrompt(),
 				},
 				{
 					role: "user",
-					content: `
-            ${file}
-  
-            ${diff}
-          `,
+					content: buildTaskGenerationPrompt({ file, diff }),
 				},
 			],
 		});
@@ -116,6 +109,7 @@ const getOpenaiResponse = async ({ file, diff }: Input) => {
 						hasTitleAndDescription: !!(task.title && task.description),
 						titleLength: task.title.length,
 						descriptionLength: task.description.length,
+						tipo: task.tipo,
 						complexidade: task.complexidade,
 						estimateMade: task.estimateMade,
 					};
@@ -144,41 +138,3 @@ const getOpenaiResponse = async ({ file, diff }: Input) => {
 		throw error;
 	}
 };
-
-type Input = {
-	file: string;
-	diff: string;
-};
-
-function sanitizeTask(
-	task: z.infer<typeof expectedOutputTask>["tasks"][number],
-) {
-	return {
-		...task,
-		complexidade: normalizeComplexidade(task.complexidade),
-		estimateMade: normalizeEstimate(task.estimateMade),
-	};
-}
-
-function normalizeEstimate(value: unknown): number {
-	const parsed = typeof value === "number" ? value : Number(value);
-
-	if (!Number.isInteger(parsed) || parsed < 1 || parsed > 8) {
-		return 1;
-	}
-
-	return parsed;
-}
-
-function normalizeComplexidade(value: unknown): Complexity {
-	if (typeof value !== "string") {
-		return "ÚNICA";
-	}
-
-	const normalized = value.toUpperCase().trim();
-	if (allowedComplexities.includes(normalized as Complexity)) {
-		return normalized as Complexity;
-	}
-
-	return "ÚNICA";
-}

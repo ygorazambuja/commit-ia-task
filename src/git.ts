@@ -1,7 +1,7 @@
-import { join, relative, resolve } from "node:path";
-import { $ } from "bun";
+import { basename, join, relative, resolve } from "node:path";
 import type { z } from "zod";
 import { createTasks, type expectedOutputTask } from "./ai";
+import type { AiProvider } from "./ai-provider";
 import { logger } from "./logger";
 
 type ContentSource =
@@ -28,8 +28,12 @@ const IGNORED_PATTERNS = new Set([
 	"package-lock.json",
 ]);
 
-export async function getDiff(gitFolder: string) {
-	const normalizedGitFolder = resolve(gitFolder.trim());
+export async function getDiff(
+	gitFolder: string,
+	options: { aiProvider?: AiProvider; taskCreator?: typeof createTasks } = {},
+) {
+	const { aiProvider, taskCreator = createTasks } = options;
+	const normalizedGitFolder = resolve(gitFolder);
 	logger.info("🔍 Iniciando análise de arquivos alterados", {
 		gitFolder: normalizedGitFolder,
 	});
@@ -45,7 +49,10 @@ export async function getDiff(gitFolder: string) {
 	const promises = files.map(async (fileMeta) => {
 		const fileName = fileMeta.relPath;
 		logger.info("🤖 Iniciando criação de tasks para arquivo", { fileName });
-		const contentResult = await getFileContentForAI(fileMeta);
+		const contentResult = await getFileContentForAI(
+			fileMeta,
+			normalizedGitFolder,
+		);
 
 		if (!contentResult.content.trim()) {
 			logger.warn("⚠️ Conteúdo vazio detectado; tentando fallback", {
@@ -73,10 +80,13 @@ export async function getDiff(gitFolder: string) {
 				payloadSize: fallbackContent.length,
 			});
 
-			const result = await createTasks({
-				file: fileMeta.absPath,
-				diff: fallbackContent,
-			});
+			const result = await taskCreator(
+				{
+					file: fileMeta.absPath,
+					diff: fallbackContent,
+				},
+				{ provider: aiProvider },
+			);
 			return { ...result, fullFilePath: fileMeta.absPath };
 		}
 
@@ -92,10 +102,13 @@ export async function getDiff(gitFolder: string) {
 			},
 		});
 
-		const result = await createTasks({
-			file: fileMeta.absPath,
-			diff: contentResult.content,
-		});
+		const result = await taskCreator(
+			{
+				file: fileMeta.absPath,
+				diff: contentResult.content,
+			},
+			{ provider: aiProvider },
+		);
 		return { ...result, fullFilePath: fileMeta.absPath };
 	});
 
@@ -133,17 +146,14 @@ export async function getDiff(gitFolder: string) {
 			? toRelativeFileName(c.value.fullFilePath, normalizedGitFolder)
 			: "unknown";
 
-		const { stderr, exitCode } = await $`git add ${c.value?.fullFilePath}`
-			.nothrow()
-			.quiet();
-
-		if (exitCode !== 0) {
+		try {
+			await runGit(["add", "--", c.value.fullFilePath], normalizedGitFolder);
+			logger.debug("✅ Arquivo adicionado ao Git", { fileName });
+		} catch (error) {
 			logger.error("❌ Erro ao adicionar arquivo ao Git", {
 				fileName,
-				error: stderr.toString(),
+				error: error instanceof Error ? error.message : String(error),
 			});
-		} else {
-			logger.debug("✅ Arquivo adicionado ao Git", { fileName });
 		}
 	}
 
@@ -154,6 +164,10 @@ export async function getDiff(gitFolder: string) {
 		errors.forEach((error, index) => {
 			logger.error(`Erro ${index + 1}:`, { error: error.reason });
 		});
+	}
+
+	if (files.length > 0 && corrects.length === 0) {
+		throw new Error("Nenhum arquivo alterado pôde ser processado");
 	}
 
 	logger.info("🏁 Análise de diff concluída", {
@@ -170,9 +184,9 @@ async function getAlteredFileMetas(
 	logger.debug("🔍 Buscando arquivos alterados (unstaged/staged) e novos...");
 
 	const [unstagedNames, stagedNames, statusMap] = await Promise.all([
-		getChangedFileNames("unstaged"),
-		getChangedFileNames("staged"),
-		getStatusMap(),
+		getChangedFileNames("unstaged", gitFolder),
+		getChangedFileNames("staged", gitFolder),
+		getStatusMap(gitFolder),
 	]);
 
 	const namesSet = new Set<string>([...unstagedNames, ...stagedNames]);
@@ -216,6 +230,7 @@ async function getAlteredFileMetas(
 
 async function getFileContentForAI(
 	fileMeta: FileChangeMeta,
+	gitFolder: string,
 ): Promise<{ content: string; source: ContentSource }> {
 	if (fileMeta.isNew) {
 		const fullContent = await Bun.file(fileMeta.absPath).text();
@@ -224,8 +239,8 @@ async function getFileContentForAI(
 
 	if (fileMeta.hasStaged && fileMeta.hasUnstaged) {
 		const [stagedDiff, unstagedDiff] = await Promise.all([
-			$`git diff --cached -- ${fileMeta.relPath}`.text(),
-			$`git diff -- ${fileMeta.relPath}`.text(),
+			runGit(["diff", "--cached", "--", fileMeta.relPath], gitFolder),
+			runGit(["diff", "--", fileMeta.relPath], gitFolder),
 		]);
 
 		const combined = [
@@ -242,12 +257,18 @@ async function getFileContentForAI(
 	}
 
 	if (fileMeta.hasStaged) {
-		const stagedDiff = await $`git diff --cached -- ${fileMeta.relPath}`.text();
+		const stagedDiff = await runGit(
+			["diff", "--cached", "--", fileMeta.relPath],
+			gitFolder,
+		);
 		return { content: stagedDiff, source: "staged_diff" };
 	}
 
 	if (fileMeta.hasUnstaged) {
-		const unstagedDiff = await $`git diff -- ${fileMeta.relPath}`.text();
+		const unstagedDiff = await runGit(
+			["diff", "--", fileMeta.relPath],
+			gitFolder,
+		);
 		return { content: unstagedDiff, source: "unstaged_diff" };
 	}
 
@@ -256,45 +277,47 @@ async function getFileContentForAI(
 
 async function getChangedFileNames(
 	kind: "unstaged" | "staged",
+	gitFolder: string,
 ): Promise<string[]> {
-	const command =
+	const args =
 		kind === "staged"
-			? ["git", "diff", "--cached", "--name-only"]
-			: ["git", "diff", "--name-only"];
-	const proc = Bun.spawn(command);
-	const output = await new Response(proc.stdout).text();
+			? ["diff", "--cached", "--name-only", "-z"]
+			: ["diff", "--name-only", "-z"];
+	const output = await runGit(args, gitFolder);
 
 	return output
-		.split("\n")
-		.map((line) => line.trim())
+		.split("\0")
 		.filter(Boolean)
 		.filter((file) => !isIgnoredFile(file));
 }
 
-async function getStatusMap(): Promise<
+async function getStatusMap(
+	gitFolder: string,
+): Promise<
 	Map<string, Pick<FileChangeMeta, "isNew" | "hasStaged" | "hasUnstaged">>
 > {
-	const proc = Bun.spawn([
-		"git",
-		"status",
-		"--porcelain",
-		"--untracked-files=all",
-	]);
-	const output = await new Response(proc.stdout).text();
+	const output = await runGit(
+		["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+		gitFolder,
+	);
 	const map = new Map<
 		string,
 		Pick<FileChangeMeta, "isNew" | "hasStaged" | "hasUnstaged">
 	>();
 
-	for (const rawLine of output.split("\n")) {
-		if (!rawLine.trim()) {
+	const entries = output.split("\0");
+	for (let index = 0; index < entries.length; index += 1) {
+		const rawLine = entries[index];
+		if (!rawLine) {
 			continue;
 		}
 
 		const x = rawLine[0] ?? " ";
 		const y = rawLine[1] ?? " ";
-		const rawPath = rawLine.slice(3).trim();
-		const relPath = normalizeStatusPath(rawPath);
+		const relPath = rawLine.slice(3);
+		if (x === "R" || x === "C" || y === "R" || y === "C") {
+			index += 1;
+		}
 
 		if (!relPath || isIgnoredFile(relPath)) {
 			continue;
@@ -310,11 +333,23 @@ async function getStatusMap(): Promise<
 	return map;
 }
 
-function normalizeStatusPath(pathValue: string): string {
-	if (pathValue.includes(" -> ")) {
-		return pathValue.split(" -> ").pop()?.trim() ?? "";
+async function runGit(args: string[], cwd: string): Promise<string> {
+	const proc = Bun.spawn(["git", ...args], {
+		cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+
+	if (exitCode !== 0) {
+		throw new Error(stderr.trim() || stdout.trim() || `git exited ${exitCode}`);
 	}
-	return pathValue.trim();
+
+	return stdout;
 }
 
 function resolveFileKind({
@@ -335,12 +370,12 @@ function resolveFileKind({
 }
 
 function isIgnoredFile(file: string): boolean {
-	return IGNORED_PATTERNS.has(file.trim());
+	return IGNORED_PATTERNS.has(basename(file));
 }
 
 function toRelativeFileName(fullFilePath: string, gitFolder: string): string {
-	const normalizedFullPath = resolve(fullFilePath.trim());
-	const rel = relative(gitFolder, normalizedFullPath).trim();
+	const normalizedFullPath = resolve(fullFilePath);
+	const rel = relative(gitFolder, normalizedFullPath);
 
 	return rel.length > 0 && !rel.startsWith("..") ? rel : fullFilePath;
 }

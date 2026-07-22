@@ -175,4 +175,5 @@ dist
 .DS_Store
 
 commit-ia-task.exe
+commit-ia-task
 task*.csv
