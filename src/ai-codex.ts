@@ -8,7 +8,8 @@ import {
 import { expectedOutputTask, sanitizeTask } from "./ai-schema";
 import { logger } from "./logger";
 
-const codexClient = new Codex();
+// Lazy: `new Codex()` exige o binário do Codex CLI, só deve rodar com --aiProvider codex
+let codexClient: Codex | undefined;
 
 export function parseCodexTaskResponse(
 	finalResponse: string,
@@ -38,6 +39,7 @@ export async function getCodexResponse({ file, diff }: TaskGenerationInput) {
 	});
 
 	try {
+		codexClient ??= new Codex();
 		const thread = codexClient.startThread({
 			sandboxMode: "read-only",
 			approvalPolicy: "never",

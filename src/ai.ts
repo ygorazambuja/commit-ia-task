@@ -1,5 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject } from "ai";
+import { getClaudeResponse } from "./ai-claude";
 import { getCodexResponse } from "./ai-codex";
 import {
 	buildTaskGenerationPrompt,
@@ -43,7 +44,9 @@ export const createTasks = async (
 		const result =
 			provider === "codex"
 				? await getCodexResponse({ file, diff })
-				: await getOpenaiResponse({ file, diff });
+				: provider === "claude"
+					? await getClaudeResponse({ file, diff })
+					: await getOpenaiResponse({ file, diff });
 		const duration = Date.now() - startTime;
 
 		logger.info("✅ IA processou arquivo com sucesso", {

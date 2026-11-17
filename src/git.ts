@@ -9,9 +9,12 @@ type ContentSource =
 	| "unstaged_diff"
 	| "staged_diff"
 	| "combined_diff"
+	| "branch_diff"
 	| "fallback";
 
-type FileKind = "new" | "modified" | "staged" | "mixed";
+type FileKind = "new" | "modified" | "staged" | "mixed" | "branch";
+
+type BranchRange = { from: string; to: string };
 
 type FileChangeMeta = {
 	relPath: string;
@@ -30,15 +33,26 @@ const IGNORED_PATTERNS = new Set([
 
 export async function getDiff(
 	gitFolder: string,
-	options: { aiProvider?: AiProvider; taskCreator?: typeof createTasks } = {},
+	options: {
+		aiProvider?: AiProvider;
+		taskCreator?: typeof createTasks;
+		branch?: string;
+		baseBranch?: string;
+	} = {},
 ) {
-	const { aiProvider, taskCreator = createTasks } = options;
+	const { aiProvider, taskCreator = createTasks, branch, baseBranch } = options;
 	const normalizedGitFolder = resolve(gitFolder);
 	logger.info("🔍 Iniciando análise de arquivos alterados", {
 		gitFolder: normalizedGitFolder,
+		branch,
 	});
 
-	const files = await getAlteredFileMetas(normalizedGitFolder);
+	const range = branch
+		? await resolveBranchRange(normalizedGitFolder, branch, baseBranch)
+		: undefined;
+	const files = range
+		? await getBranchFileMetas(normalizedGitFolder, range)
+		: await getAlteredFileMetas(normalizedGitFolder);
 	logger.info("📁 Arquivos encontrados", {
 		count: files.length,
 		files: files.map((f) => f.relPath),
@@ -49,12 +63,24 @@ export async function getDiff(
 	const promises = files.map(async (fileMeta) => {
 		const fileName = fileMeta.relPath;
 		logger.info("🤖 Iniciando criação de tasks para arquivo", { fileName });
-		const contentResult = await getFileContentForAI(
-			fileMeta,
-			normalizedGitFolder,
-		);
+		const contentResult = range
+			? {
+					content: await runGit(
+						["diff", range.from, range.to, "--", fileMeta.relPath],
+						normalizedGitFolder,
+					),
+					source: "branch_diff" as const,
+				}
+			: await getFileContentForAI(fileMeta, normalizedGitFolder);
 
 		if (!contentResult.content.trim()) {
+			// O arquivo no disco é da branch em checkout, não da branch analisada.
+			if (range) {
+				throw new Error(
+					`Diff vazio para ${fileName} na branch ${branch}; arquivo ignorado`,
+				);
+			}
+
 			logger.warn("⚠️ Conteúdo vazio detectado; tentando fallback", {
 				fileName,
 				kind: fileMeta.kind,
@@ -140,8 +166,9 @@ export async function getDiff(
 		});
 	}
 
-	logger.info("📝 Adicionando arquivos ao Git...");
-	for (const c of corrects) {
+	// Em modo branch os arquivos já estão commitados; não mexe no index.
+	if (!range) logger.info("📝 Adicionando arquivos ao Git...");
+	for (const c of range ? [] : corrects) {
 		const fileName = c.value?.fullFilePath
 			? toRelativeFileName(c.value.fullFilePath, normalizedGitFolder)
 			: "unknown";
@@ -226,6 +253,146 @@ async function getAlteredFileMetas(
 	});
 
 	return metas;
+}
+
+async function resolveBranchRange(
+	gitFolder: string,
+	branch: string,
+	baseBranch?: string,
+): Promise<BranchRange> {
+	const base = baseBranch ?? (await detectDefaultBranch(gitFolder));
+	const [tip, baseTip] = await Promise.all(
+		[branch, base].map(async (ref) =>
+			(
+				await runGit(
+					["rev-parse", "--verify", `${ref}^{commit}`],
+					gitFolder,
+				).catch(() => {
+					throw new Error(`Branch ou commit não encontrado: ${ref}`);
+				})
+			).trim(),
+		),
+	);
+	if (tip === baseTip) {
+		throw new Error(
+			`A branch ${branch} é igual à base ${base}; informe outra --baseBranch`,
+		);
+	}
+
+	const mergeBase = (
+		await runGit(["merge-base", baseTip, tip], gitFolder)
+	).trim();
+	if (mergeBase !== tip) {
+		logger.info("🌿 Analisando branch", { branch, base, from: mergeBase });
+		return { from: mergeBase, to: tip };
+	}
+
+	// A branch já está contida na base: procura o merge commit que a trouxe.
+	const merges = (
+		await runGit(
+			[
+				"rev-list",
+				"--ancestry-path",
+				"--merges",
+				"--reverse",
+				`${tip}..${baseTip}`,
+			],
+			gitFolder,
+		)
+	)
+		.split("\n")
+		.filter(Boolean);
+	for (const merge of merges) {
+		if (
+			await gitSucceeds(
+				["merge-base", "--is-ancestor", tip, `${merge}^1`],
+				gitFolder,
+			)
+		) {
+			continue;
+		}
+		const from = (
+			await runGit(["merge-base", `${merge}^1`, tip], gitFolder)
+		).trim();
+		logger.info("🌿 Analisando branch já mergeada", {
+			branch,
+			base,
+			mergeCommit: merge,
+			from,
+		});
+		return { from, to: tip };
+	}
+
+	throw new Error(
+		`A branch ${branch} já está em ${base} sem merge commit (fast-forward); informe --baseBranch com o commit de onde ela saiu`,
+	);
+}
+
+async function detectDefaultBranch(gitFolder: string): Promise<string> {
+	// Fluxo do time: branches de feature saem da develop; o remoto é o mais atualizado.
+	const refs = (
+		await runGit(
+			[
+				"for-each-ref",
+				"--format=%(refname:short)",
+				"refs/remotes/origin",
+				"refs/heads",
+			],
+			gitFolder,
+		)
+	).split("\n");
+	const develop =
+		refs.find((ref) => /^origin\/develop$/i.test(ref)) ??
+		refs.find((ref) => /^develop$/i.test(ref));
+	if (develop) {
+		return develop;
+	}
+
+	const originHead = await runGit(
+		["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+		gitFolder,
+	).catch(() => "");
+	if (originHead.trim()) {
+		return originHead.trim();
+	}
+
+	for (const candidate of ["main", "master"]) {
+		if (
+			await gitSucceeds(
+				["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`],
+				gitFolder,
+			)
+		) {
+			return candidate;
+		}
+	}
+
+	throw new Error(
+		"Não foi possível detectar a branch base (origin/HEAD, main ou master); informe --baseBranch",
+	);
+}
+
+async function getBranchFileMetas(
+	gitFolder: string,
+	range: BranchRange,
+): Promise<FileChangeMeta[]> {
+	const output = await runGit(
+		["diff", "--name-only", "-z", range.from, range.to],
+		gitFolder,
+	);
+
+	return output
+		.split("\0")
+		.filter(Boolean)
+		.filter((relPath) => !isIgnoredFile(relPath))
+		.map((relPath) => ({
+			relPath,
+			absPath: join(gitFolder, relPath),
+			isNew: false,
+			hasStaged: false,
+			hasUnstaged: false,
+			kind: "branch" as const,
+		}));
 }
 
 async function getFileContentForAI(
@@ -350,6 +517,15 @@ async function runGit(args: string[], cwd: string): Promise<string> {
 	}
 
 	return stdout;
+}
+
+async function gitSucceeds(args: string[], cwd: string): Promise<boolean> {
+	const proc = Bun.spawn(["git", ...args], {
+		cwd,
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	return (await proc.exited) === 0;
 }
 
 function resolveFileKind({

@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { logger } from "./logger";
 
-export const AI_PROVIDERS = ["openai", "codex"] as const;
+export const AI_PROVIDERS = ["openai", "codex", "claude"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 let configuredProvider: AiProvider = "openai";
@@ -20,12 +20,12 @@ export function resolveAiProvider(value: string | undefined): AiProvider {
 	}
 
 	const normalized = value.trim().toLowerCase();
-	if (normalized === "openai" || normalized === "codex") {
-		return normalized;
+	if ((AI_PROVIDERS as readonly string[]).includes(normalized)) {
+		return normalized as AiProvider;
 	}
 
 	throw new Error(
-		`Provedor de IA inválido: "${value}". Use "openai" ou "codex".`,
+		`Provedor de IA inválido: "${value}". Use "openai", "codex" ou "claude".`,
 	);
 }
 
@@ -40,6 +40,12 @@ export async function validateAiProviderSetup(
 			);
 			process.exit(1);
 		}
+		return;
+	}
+
+	if (provider === "claude") {
+		// O SDK traz o próprio executável do Claude Code; a autenticação falha na primeira chamada se não houver login.
+		logger.info("🤖 Provedor de IA configurado", { provider: "claude" });
 		return;
 	}
 

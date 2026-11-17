@@ -48,6 +48,18 @@ const { values } = parseArgs({
 		azureProject: {
 			type: "string",
 		},
+		branch: {
+			type: "string",
+		},
+		baseBranch: {
+			type: "string",
+		},
+		pbi: {
+			type: "string",
+		},
+		noCsv: {
+			type: "boolean",
+		},
 	},
 	strict: true,
 	allowPositionals: true,
@@ -61,6 +73,22 @@ try {
 		aiProvider: values.aiProvider,
 		error: error instanceof Error ? error.message : String(error),
 	});
+	process.exit(1);
+}
+
+if (values.pbi !== undefined) {
+	if (!/^\d+$/.test(values.pbi)) {
+		logger.error("❌ --pbi deve ser o ID numérico do PBI", { pbi: values.pbi });
+		process.exit(1);
+	}
+	if (!values.createAzureTasks) {
+		logger.error("❌ --pbi só funciona junto com --createAzureTasks");
+		process.exit(1);
+	}
+}
+
+if (values.noCsv && !values.createAzureTasks) {
+	logger.error("❌ --noCsv só faz sentido com --createAzureTasks");
 	process.exit(1);
 }
 
@@ -244,21 +272,27 @@ try {
 	logger.debug("📁 Diretório de trabalho", { pwd });
 
 	logger.info("🔍 Iniciando análise de diferenças do Git...");
-	const files = await getDiff(pwd, { aiProvider });
+	const files = await getDiff(pwd, {
+		aiProvider,
+		branch: values.branch,
+		baseBranch: values.baseBranch,
+	});
 
 	logger.info("📊 Análise concluída", {
 		totalFiles: files.length,
 		totalTasks: files.reduce((sum, file) => sum + file.tasks.length, 0),
 	});
 
-	logger.info("📝 Gerando arquivo CSV...");
-	await buildCsvFile({
-		files,
-		areaId: areaPathId,
-		assignedTo,
-		sprintId,
-		itemContrato,
-	});
+	if (!values.noCsv) {
+		logger.info("📝 Gerando arquivo CSV...");
+		await buildCsvFile({
+			files,
+			areaId: areaPathId,
+			assignedTo,
+			sprintId,
+			itemContrato,
+		});
+	}
 
 	if (values.createAzureTasks) {
 		const records = buildTaskRecords({
@@ -273,6 +307,7 @@ try {
 			records,
 			organization: azureOrganization,
 			project: azureProject,
+			parentId: values.pbi ? Number(values.pbi) : undefined,
 		});
 	}
 

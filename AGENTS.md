@@ -8,6 +8,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 The project runs on **Bun**, not Node.js. TypeScript is strict, ES modules are used throughout, and runtime code should prefer Bun APIs such as `Bun.spawn()`, `Bun.env`, `Bun.file()`, `Bun.write()`, and Bun shell where appropriate.
 
+To *use* the CLI on another repo (not develop it), read the "Uso por agentes de código" section in README.md: it must run inside the target repo, it stages files with `git add`, persists flags to config, and `--createAzureTasks` creates real work items.
+
 ## Common Commands
 
 ### Development
@@ -52,6 +54,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 
 - `OPENAI_API_KEY`: required when using `--aiProvider openai` (default).
 - `CODEX_MODEL`: optional model override when using `--aiProvider codex`; otherwise the Codex SDK uses its configured default.
+- `CLAUDE_MODEL`: optional model override when using `--aiProvider claude` (auth via `claude login` or `ANTHROPIC_API_KEY`).
 - `LOG_LEVEL`: optional logging verbosity: `debug`, `info`, `warn`, or `error`.
 - `COMMIT_IA_TASK_CONFIG_DIR`: optional directory override for the persisted `config.json`.
 - Azure CLI plus the Azure DevOps extension are required only when using `--createAzureTasks`.
@@ -64,12 +67,16 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 - `--areaPathId`: area path/ID used in CSV and Azure DevOps task creation.
 - `--assignedTo`: assignee value; defaults to `Ygor Azambuja <ygor.azambuja@infortechms.com.br>`.
 - `--itemContrato`: contract item value; defaults to `Item 1`.
-- `--aiProvider`: `openai` or `codex`; defaults to `openai`.
+- `--aiProvider`: `openai`, `codex` or `claude`; defaults to `openai`.
+- `--branch`: analyze files changed on this branch (from its fork point to its tip) instead of the working tree; no `git add` in this mode.
+- `--baseBranch`: base branch or commit for `--branch`; defaults to `origin/develop` or `develop` (case-insensitive), then `origin/HEAD`, `main`, `master`.
 - `--createAzureTasks`: when present, creates Azure DevOps work items after generating the CSV.
+- `--noCsv`: skip CSV generation; requires `--createAzureTasks`.
+- `--pbi`: parent PBI ID; each created task is linked with `az boards work-item relation add --relation-type parent`. Requires `--createAzureTasks`.
 - `--azureOrganization`: Azure DevOps organization URL, for example `https://dev.azure.com/org`.
 - `--azureProject`: Azure DevOps project name or ID.
 
-Configuration is persisted between runs. The CLI loads saved values, merges them with flags, prompts for editable values in an interactive terminal, and writes the final config back to disk. On macOS the default config file is under `~/Library/Application Support/commit-ia-task/config.json`.
+Configuration is persisted between runs. The CLI loads saved values, merges them with flags, prompts for editable values in an interactive terminal (no prompts without a TTY), and writes the final config back to disk. Default config file: `%APPDATA%\commit-ia-task\config.json` on Windows, `~/Library/Application Support/commit-ia-task/config.json` on macOS, `$XDG_CONFIG_HOME` or `~/.config/commit-ia-task/config.json` on Linux.
 
 When Azure organization/project are not passed or saved, the app attempts to read defaults from:
 
@@ -83,7 +90,7 @@ az devops configure -l
 
 1. `src/index.ts` validates provider setup, loads/persists configuration, orchestrates Git analysis, CSV generation, and optional Azure DevOps creation.
 2. `src/git.ts` discovers changed files, collects the best payload for each file (new full file, staged diff, unstaged diff, or combined staged/unstaged diff), calls AI generation, and stages successfully processed files with `git add`.
-3. `src/ai.ts` routes generation to OpenAI or Codex and normalizes task output.
+3. `src/ai.ts` routes generation to OpenAI, Codex or Claude and normalizes task output.
 4. `src/csv.ts` converts generated tasks into Azure DevOps-compatible task records and writes `tasks-{day}-{month}-{hour}-{minute}.csv`.
 5. `src/azure-devops.ts` optionally creates tasks through `az boards work-item create`.
 
@@ -92,7 +99,7 @@ az devops configure -l
 **`src/index.ts`**
 - Entry point and top-level workflow.
 - Uses `node:util.parseArgs` and `node:readline/promises`.
-- Validates `OPENAI_API_KEY` for OpenAI or Codex CLI availability for Codex.
+- Validates `OPENAI_API_KEY` for OpenAI or Codex CLI availability for Codex; Claude fails on the first call if not authenticated.
 - Saves effective config on every successful setup pass.
 
 **`src/config.ts`**
@@ -105,14 +112,15 @@ az devops configure -l
 - Ignores lock files: `pnpm-lock.yaml`, `bun.lockb`, and `package-lock.json`.
 - Sends file work to AI in parallel with `Promise.allSettled()` so one failed file does not stop all processing.
 - Stages only successfully processed files.
+- Branch mode diffs `merge-base(base, branch)..branch`; for branches already merged via merge commit it finds that merge and uses `merge-base(merge^1, branch)`; fast-forwarded branches require `--baseBranch`.
 
 **`src/ai-provider.ts`**
-- Defines provider values: `openai` and `codex`.
+- Defines provider values: `openai`, `codex` and `claude`.
 - Resolves CLI input, stores the configured provider, and validates provider prerequisites.
 
 **`src/ai.ts`**
 - Main task generation facade.
-- Uses `@ai-sdk/openai` + `ai` for OpenAI generation and `src/ai-codex.ts` for Codex generation.
+- Uses `@ai-sdk/openai` + `ai` for OpenAI generation, `src/ai-codex.ts` for Codex and `src/ai-claude.ts` for Claude.
 - The current OpenAI model call uses `gpt-5-nano`.
 
 **`src/ai-codex.ts`**
@@ -120,6 +128,10 @@ az devops configure -l
 - Authenticates via the local Codex CLI session (`codex login`), not an API key.
 - Runs Codex with `sandboxMode: "read-only"` and `approvalPolicy: "never"`.
 - Requests structured JSON with `outputSchema`.
+
+**`src/ai-claude.ts`**
+- Uses `@anthropic-ai/claude-agent-sdk` `query()` with `outputFormat: json_schema` and no tools.
+- Authenticates via the Claude Code session (`claude login`) or `ANTHROPIC_API_KEY`.
 
 **`src/ai-prompt.ts`**
 - Centralizes the Brazilian Portuguese task-generation prompt.
@@ -135,16 +147,19 @@ az devops configure -l
 - Fixed values include:
   - `Work Item Type`: `Task`
   - `State`: `To Do`
-  - `ID SPF`: `19`
-  - `UST`: `4`
   - `Activity`: `Development`
+- Derived values:
+  - `ID SPF` from `tipo`: BACKEND `17`, FRONTEND `19`, TESTES `22`
+  - `UST` from `complexidade`: BAIXA `8`, MEDIA `24`, ALTA `40`, ÚNICA `8`
 - `Remaining Work` and `Original Estimate` mirror `Estimate Made`.
 - Sanitizes generated text into single-line CSV-safe strings.
 
 **`src/azure-devops.ts`**
 - Wraps Azure CLI calls.
 - Reads defaults from `az devops configure -l`.
-- Creates work items with title, description, assignee, state, area, iteration, activity, original estimate, and remaining work.
+- Creates work items with title, description, assignee, area, iteration and `--fields` for `System.State`, activity, original estimate, remaining work and the custom fields `Custom.ItemContrato`, `Custom.IDSPF`, `Custom.UST`, `Custom.Complexidade`, `Custom.EstimateMade` (all required by the SPF-SIAFIC process).
+- Numeric area/iteration values are sent as `System.AreaId`/`System.IterationId` (`--area`/`--iteration` accept paths only). `az work-item create` has no `--state` flag.
+- On Windows `az` is a `.cmd`: Bun rejects cmd.exe special chars in args and the codepage can corrupt accents, so `toCmdSafeArgs` passes those args as `@tempfile`. `az` output on Windows is cp1252, not UTF-8.
 
 **`src/logger.ts`**
 - Custom logger with `debug`, `info`, `warn`, and `error`.

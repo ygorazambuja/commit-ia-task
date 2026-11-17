@@ -60,11 +60,12 @@ describe("AI provider resolution", () => {
 		expect(resolveAiProvider("openai")).toBe("openai");
 		expect(resolveAiProvider("codex")).toBe("codex");
 		expect(resolveAiProvider(" CODEX ")).toBe("codex");
+		expect(resolveAiProvider("Claude")).toBe("claude");
 	});
 
 	test("rejects invalid providers", () => {
 		expect(() => resolveAiProvider("anthropic")).toThrow(
-			'Provedor de IA inválido: "anthropic". Use "openai" ou "codex".',
+			'Provedor de IA inválido: "anthropic". Use "openai", "codex" ou "claude".',
 		);
 	});
 
