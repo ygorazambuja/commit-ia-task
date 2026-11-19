@@ -128,20 +128,20 @@ az devops configure --defaults organization=https://dev.azure.com/minha-org proj
 
 ### Parâmetros
 
-| Flag | Descrição | Padrão |
-|------|-----------|--------|
-| `--sprintId` | Iteration path ou ID usado no CSV e no `az` | valor salvo; obrigatório se não houver |
-| `--areaPathId` | Area path ou ID usado no CSV e no `az` | valor salvo; obrigatório se não houver |
-| `--assignedTo` | Responsável pelas tarefas | valor salvo, senão `Ygor Azambuja <ygor.azambuja@infortechms.com.br>` |
-| `--itemContrato` | Item de contrato no CSV | valor salvo, senão `Item 1` |
-| `--aiProvider` | `openai`, `codex` ou `claude` (não é salvo) | `openai` |
-| `--branch` | Gera tarefas dos arquivos alterados nessa branch em vez das alterações pendentes (não é salvo) | desligado |
-| `--baseBranch` | Branch ou commit base para `--branch` (não é salvo) | `develop`, senão `origin/HEAD`, `main` ou `master` |
-| `--createAzureTasks` | Cria as tarefas no Azure DevOps após gerar o CSV | desligado |
-| `--pbi` | ID numérico do PBI pai; exige `--createAzureTasks` (não é salvo) | sem pai |
-| `--noCsv` | Não gera o CSV; exige `--createAzureTasks` (não é salvo) | gera CSV |
-| `--azureOrganization` | URL da organização, ex.: `https://dev.azure.com/minha-org` | valor salvo, senão `az devops configure -l` |
-| `--azureProject` | Nome ou ID do projeto | valor salvo, senão `az devops configure -l` |
+| Flag                  | Descrição                                                                                      | Padrão                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `--sprintId`          | Iteration path ou ID usado no CSV e no `az`                                                    | valor salvo; obrigatório se não houver                                |
+| `--areaPathId`        | Area path ou ID usado no CSV e no `az`                                                         | valor salvo; obrigatório se não houver                                |
+| `--assignedTo`        | Responsável pelas tarefas                                                                      | valor salvo, senão `Ygor Azambuja <ygor.azambuja@infortechms.com.br>` |
+| `--itemContrato`      | Item de contrato no CSV                                                                        | valor salvo, senão `Item 1`                                           |
+| `--aiProvider`        | `openai`, `codex` ou `claude` (não é salvo)                                                    | `openai`                                                              |
+| `--branch`            | Gera tarefas dos arquivos alterados nessa branch em vez das alterações pendentes (não é salvo) | desligado                                                             |
+| `--baseBranch`        | Branch ou commit base para `--branch` (não é salvo)                                            | `develop`, senão `origin/HEAD`, `main` ou `master`                    |
+| `--createAzureTasks`  | Cria as tarefas no Azure DevOps após gerar o CSV                                               | desligado                                                             |
+| `--pbi`               | ID numérico do PBI pai; exige `--createAzureTasks` (não é salvo)                               | sem pai                                                               |
+| `--noCsv`             | Não gera o CSV; exige `--createAzureTasks` (não é salvo)                                       | gera CSV                                                              |
+| `--azureOrganization` | URL da organização, ex.: `https://dev.azure.com/minha-org`                                     | valor salvo, senão `az devops configure -l`                           |
+| `--azureProject`      | Nome ou ID do projeto                                                                          | valor salvo, senão `az devops configure -l`                           |
 
 Flags desconhecidas encerram o CLI com erro. Não existe `--help`.
 
@@ -169,6 +169,49 @@ Resumo do que um agente precisa saber antes de executar:
    - Com `--createAzureTasks`, cria work items reais no Azure DevOps. **Não é reversível pelo CLI: confirme com o usuário antes de usar.**
 4. **Responsável padrão:** sem `--assignedTo` nem valor salvo, as tarefas são atribuídas a Ygor Azambuja. Passe `--assignedTo` quando o usuário for outra pessoa.
 5. **Saída:** código `0` em sucesso, `1` em erro (provedor inválido, credencial ausente, parâmetros obrigatórios ausentes ou falha durante a execução). Falha de IA em um arquivo é registrada no log e não interrompe os demais. Use `LOG_LEVEL=error` para reduzir a saída.
+
+## 🧩 Skills
+
+Além do CLI principal, o repositório reúne scripts de rotina em `scripts/`, cada um chamado por uma skill em `.claude/skills/<nome>/SKILL.md`. Os scripts reaproveitam o `config.json` e a integração com o `az` do CLI. Para usar a skill, abra o Claude Code neste repositório e peça a tarefa (ex.: "lança a daily") ou digite `/<nome>`.
+
+### Requisitos das skills
+
+Não é preciso clonar outros repositórios (como o `timelog-bot`), mas cada pessoa precisa ter na máquina:
+
+- **Bun**, com as dependências instaladas neste repositório (`bun install`). Os scripts rodam com `bun run`.
+- **Azure CLI** com a extensão Azure DevOps (`az extension add --name azure-devops`), autenticado com `az devops login` usando um PAT próprio. Para o `timelog`, o PAT precisa do escopo **Extension Data (read & write)**.
+- Organização e projeto do Azure DevOps salvos no `config.json` (rode o `commit-ia-task` uma vez) ou configurados com `az devops configure --defaults organization=https://dev.azure.com/minha-org project="Meu Projeto"`.
+
+| Skill     | Script                                                                                                                            | O que faz                                                  |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `daily`   | `bun run scripts/daily.ts [--dryRun] [--sprintId X] [--pbi N]`                                                                    | Cria a task "Daily" de hoje na PBI Institucional da sprint |
+| `timelog` | `bun run scripts/timelog.ts <id> --hours H [--minutes M] [--date YYYY-MM-DD] --type Backend\|Frontend --comment "..." [--dryRun]` | Registra horas na aba Time Log Free de um work item        |
+
+### `daily`
+
+- Acha a PBI da sprint (`sprintId` salvo ou `--sprintId`) cujo título contém "Institucional". Se houver zero ou mais de uma, para com erro; use `--pbi <id>` para escolher.
+- Não duplica: se já existe uma task "Daily" criada hoje nessa PBI para o mesmo responsável, só informa o ID dela.
+- Feito para rodar no fim do expediente: a descrição é `Reunião diária da SPxx.` seguida de "Atividades do dia", a lista das tasks atribuídas ao responsável alteradas hoje (link `#id`, título e estado; outras Dailies ficam de fora).
+- Cria a task com título `Daily`, estado `Done`, estimativa 1h, ID SPF 17, UST 1 e complexidade BAIXA, vinculada à PBI.
+- `--dryRun` faz só as consultas e imprime a descrição que seria usada.
+- Precisa de `sprintId`, `areaPathId` e `assignedTo` salvos na config (rode o `commit-ia-task` uma vez) e do `az` autenticado.
+
+### `timelog`
+
+Port do CLI Rust `timelog-bot` (repositório irmão), sem PAT: usa a credencial do `az devops login`.
+
+- Grava um documento na coleção `TimeLogData` da extensão [`TimeLog.time-logging-extension`](https://marketplace.visualstudio.com/items?itemName=TimeLog.time-logging-extension) via `az devops invoke`. Não altera `CompletedWork`, `RemainingWork` nem outros campos da task.
+- Nome e ID gravados são os do usuário autenticado no `az`, obtidos com uma WIQL `@Me` (precisa ter algum work item atribuído nos últimos 90 dias).
+- `--date` é opcional (padrão: hoje). `--type` aceita só `Backend` ou `Frontend`.
+- Não é idempotente: cada execução cria uma linha. Depois de erro de rede no envio, confira a aba antes de repetir.
+- Diferente do Rust, não suporta conta técnica (`--user-name`/`--user-id`), PAT/token por variável de ambiente nem `--timeout`/`--api-version`.
+
+### Adicionar uma skill
+
+1. Crie `scripts/<nome>.ts` exportando a lógica (testável com executor falso do `az`) e rodando só sob `import.meta.main`.
+2. Crie `tests/<nome>.test.ts`.
+3. Crie `.claude/skills/<nome>/SKILL.md` dizendo quando usar, o comando e como ler o resultado.
+4. Adicione uma linha na tabela acima.
 
 ## 🔧 Variáveis de ambiente
 

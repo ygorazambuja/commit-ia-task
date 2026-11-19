@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { TaskRecord } from "./csv";
 import { logger } from "./logger";
 
-type AzureCliExecutor = (args: string[]) => Promise<string>;
+export type AzureCliExecutor = (args: string[]) => Promise<string>;
 
 export type CreateAzureTasksInput = {
 	records: TaskRecord[];
@@ -38,7 +38,7 @@ export const toCmdSafeArgs = async (
 		}),
 	);
 
-const defaultExecutor: AzureCliExecutor = async (args) => {
+export const defaultExecutor: AzureCliExecutor = async (args) => {
 	const tempDir =
 		process.platform === "win32"
 			? await mkdtemp(join(tmpdir(), "commit-ia-task-az-"))
@@ -51,9 +51,11 @@ const defaultExecutor: AzureCliExecutor = async (args) => {
 			stderr: "pipe",
 		});
 
+		// No Windows o az escreve em cp1252 mesmo com PYTHONIOENCODING=utf-8; ler como UTF-8 quebra acentos.
+		const decoder = new TextDecoder(tempDir ? "windows-1252" : "utf-8");
 		const [stdout, stderr, exitCode] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
+			new Response(proc.stdout).arrayBuffer().then((b) => decoder.decode(b)),
+			new Response(proc.stderr).arrayBuffer().then((b) => decoder.decode(b)),
 			proc.exited,
 		]);
 
@@ -159,7 +161,9 @@ const buildCreateWorkItemArgs = (
 		`Custom.Complexidade=${record.Complexidade}`,
 		`Custom.EstimateMade=${record["Estimate Made"]}`,
 		...(isNumericId(area) ? [`System.AreaId=${area.trim()}`] : []),
-		...(isNumericId(iteration) ? [`System.IterationId=${iteration.trim()}`] : []),
+		...(isNumericId(iteration)
+			? [`System.IterationId=${iteration.trim()}`]
+			: []),
 		...optionalArgs(options),
 		"--output",
 		"json",

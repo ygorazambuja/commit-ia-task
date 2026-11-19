@@ -162,7 +162,10 @@ if (results.length !== 1 || !results[0]?.fullFilePath.endsWith(${JSON.stringify(
 
 		test("prefers a Develop branch as the default base", async () => {
 			const repo = await setupBranch();
-			await run(["git", "checkout", "--quiet", "-b", "Develop", "feature~1"], repo);
+			await run(
+				["git", "checkout", "--quiet", "-b", "Develop", "feature~1"],
+				repo,
+			);
 			await run(["git", "checkout", "--quiet", "main"], repo);
 
 			const results = await getDiff(repo, {

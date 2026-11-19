@@ -168,7 +168,7 @@ export type TaskRecord = {
 	"Work Item Type": "Task";
 	Title: string;
 	"Assigned To": string;
-	State: "To Do";
+	State: "To Do" | "Done";
 	"Area ID": string;
 	"Iteration ID": string;
 	"Item Contrato": string;

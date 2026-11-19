@@ -8,7 +8,9 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 The project runs on **Bun**, not Node.js. TypeScript is strict, ES modules are used throughout, and runtime code should prefer Bun APIs such as `Bun.spawn()`, `Bun.env`, `Bun.file()`, `Bun.write()`, and Bun shell where appropriate.
 
-To *use* the CLI on another repo (not develop it), read the "Uso por agentes de código" section in README.md: it must run inside the target repo, it stages files with `git add`, persists flags to config, and `--createAzureTasks` creates real work items.
+To _use_ the CLI on another repo (not develop it), read the "Uso por agentes de código" section in README.md: it must run inside the target repo, it stages files with `git add`, persists flags to config, and `--createAzureTasks` creates real work items.
+
+Routine automations live in `scripts/` and are invoked by skills in `.claude/skills/<name>/SKILL.md` (see README.md, "Skills"). Example: `bun run scripts/daily.ts [--dryRun]` creates today's "Daily" task under the sprint's "Institucional" PBI; `bun run scripts/timelog.ts <id> --hours H --type Backend|Frontend --comment "..." [--dryRun]` logs hours in the Time Log Free tab (not idempotent).
 
 ## Common Commands
 
@@ -27,8 +29,9 @@ bun run src/index.ts --aiProvider codex --sprintId "SPRINT_ID" --areaPathId "ARE
 # Run and create Azure DevOps tasks after CSV generation
 bun run src/index.ts --aiProvider codex --sprintId "PROJECT\\SPRINT" --areaPathId "PROJECT\\AREA" --createAzureTasks
 
-# Format and apply Biome fixes
+# Format (bun fmt) and type-check (bun check)
 bun run format
+bun run typecheck
 
 # Run tests
 bun test
@@ -97,17 +100,20 @@ az devops configure -l
 ### Key Components
 
 **`src/index.ts`**
+
 - Entry point and top-level workflow.
 - Uses `node:util.parseArgs` and `node:readline/promises`.
 - Validates `OPENAI_API_KEY` for OpenAI or Codex CLI availability for Codex; Claude fails on the first call if not authenticated.
 - Saves effective config on every successful setup pass.
 
 **`src/config.ts`**
+
 - Owns persisted configuration loading/saving.
 - Uses OS-specific config directories, with `COMMIT_IA_TASK_CONFIG_DIR` as an override.
 - Logs config failures as warnings and continues with defaults/flags.
 
 **`src/git.ts`**
+
 - Detects unstaged, staged, mixed, and new files.
 - Ignores lock files: `pnpm-lock.yaml`, `bun.lockb`, and `package-lock.json`.
 - Sends file work to AI in parallel with `Promise.allSettled()` so one failed file does not stop all processing.
@@ -115,34 +121,41 @@ az devops configure -l
 - Branch mode diffs `merge-base(base, branch)..branch`; for branches already merged via merge commit it finds that merge and uses `merge-base(merge^1, branch)`; fast-forwarded branches require `--baseBranch`.
 
 **`src/ai-provider.ts`**
+
 - Defines provider values: `openai`, `codex` and `claude`.
 - Resolves CLI input, stores the configured provider, and validates provider prerequisites.
 
 **`src/ai.ts`**
+
 - Main task generation facade.
 - Uses `@ai-sdk/openai` + `ai` for OpenAI generation, `src/ai-codex.ts` for Codex and `src/ai-claude.ts` for Claude.
 - The current OpenAI model call uses `gpt-5-nano`.
 
 **`src/ai-codex.ts`**
+
 - Uses `@openai/codex-sdk`.
 - Authenticates via the local Codex CLI session (`codex login`), not an API key.
 - Runs Codex with `sandboxMode: "read-only"` and `approvalPolicy: "never"`.
 - Requests structured JSON with `outputSchema`.
 
 **`src/ai-claude.ts`**
+
 - Uses `@anthropic-ai/claude-agent-sdk` `query()` with `outputFormat: json_schema` and no tools.
 - Authenticates via the Claude Code session (`claude login`) or `ANTHROPIC_API_KEY`.
 
 **`src/ai-prompt.ts`**
+
 - Centralizes the Brazilian Portuguese task-generation prompt.
 - Instructs the model to generate few, grouped, client-friendly tasks without markdown.
 
 **`src/ai-schema.ts`**
+
 - Defines the Zod schema for AI output.
 - Normalizes `complexidade` to `ALTA`, `MEDIA`, `BAIXA`, or `ÚNICA`.
 - Normalizes invalid `estimateMade` values to `1`.
 
 **`src/csv.ts`**
+
 - Uses `csv-writer`.
 - Fixed values include:
   - `Work Item Type`: `Task`
@@ -155,13 +168,15 @@ az devops configure -l
 - Sanitizes generated text into single-line CSV-safe strings.
 
 **`src/azure-devops.ts`**
+
 - Wraps Azure CLI calls.
 - Reads defaults from `az devops configure -l`.
 - Creates work items with title, description, assignee, area, iteration and `--fields` for `System.State`, activity, original estimate, remaining work and the custom fields `Custom.ItemContrato`, `Custom.IDSPF`, `Custom.UST`, `Custom.Complexidade`, `Custom.EstimateMade` (all required by the SPF-SIAFIC process).
 - Numeric area/iteration values are sent as `System.AreaId`/`System.IterationId` (`--area`/`--iteration` accept paths only). `az work-item create` has no `--state` flag.
-- On Windows `az` is a `.cmd`: Bun rejects cmd.exe special chars in args and the codepage can corrupt accents, so `toCmdSafeArgs` passes those args as `@tempfile`. `az` output on Windows is cp1252, not UTF-8.
+- On Windows `az` is a `.cmd`: Bun rejects cmd.exe special chars in args and the codepage can corrupt accents, so `toCmdSafeArgs` passes those args as `@tempfile`. `az` output on Windows is cp1252, not UTF-8 (even with `PYTHONIOENCODING`), so `defaultExecutor` decodes it as `windows-1252` there.
 
 **`src/logger.ts`**
+
 - Custom logger with `debug`, `info`, `warn`, and `error`.
 - Uses colored output and structured metadata.
 - Exposes helpers such as `formatDuration()` and `formatFileSize()`.
@@ -187,7 +202,7 @@ bun test
 
 ## Code Style
 
-- Formatter/linter: Biome 2.x.
+- Formatter: `bun fmt` (configured in `bunfig.toml`); type-check: `bun check`. No Biome or tsc.
 - Indentation: tabs.
 - Quotes: double quotes.
 - TypeScript: strict mode, `moduleResolution: "bundler"`, no emit.
