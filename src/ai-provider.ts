@@ -14,6 +14,23 @@ export function getAiProvider(): AiProvider {
 	return configuredProvider;
 }
 
+// Modelos rápidos de cada assinatura, usados para classificar o serviço quando o Jev não entra.
+export const CLASSIFIER_MODELS = {
+	claude: "claude-haiku-5-5",
+	codex: "gpt-6-luna",
+} as const;
+
+let jevAllowed = true;
+
+export function setJevAllowed(allowed: boolean): void {
+	jevAllowed = allowed;
+}
+
+// Sem chave ou com --noJev, quem classifica o serviço é a IA do provedor.
+export function usesJev(): boolean {
+	return jevAllowed && Boolean(Bun.env.JEV_API_KEY);
+}
+
 export function resolveAiProvider(value: string | undefined): AiProvider {
 	if (!value) {
 		return "openai";
@@ -32,6 +49,21 @@ export function resolveAiProvider(value: string | undefined): AiProvider {
 export async function validateAiProviderSetup(
 	provider: AiProvider,
 ): Promise<void> {
+	if (!usesJev()) {
+		if (provider === "openai") {
+			logger.error(
+				"❌ Sem o Jev, o provedor openai não classifica o serviço das tarefas",
+			);
+			console.error(
+				"Configure JEV_API_KEY (chave da TypeSafe) ou use --aiProvider claude ou codex.",
+			);
+			process.exit(1);
+		}
+		logger.info("🏷️ Serviço das tarefas será classificado sem o Jev", {
+			modelo: CLASSIFIER_MODELS[provider],
+		});
+	}
+
 	if (provider === "openai") {
 		if (!Bun.env.OPENAI_API_KEY) {
 			logger.error("❌ Variável de ambiente OPENAI_API_KEY não configurada");

@@ -19,6 +19,7 @@ CLI que lê as alterações pendentes de um repositório Git, usa IA para gerar 
   - `openai` (padrão): conta na plataforma OpenAI com créditos e `OPENAI_API_KEY`
   - `codex`: Codex CLI no PATH e autenticado com `codex login` (assinatura ChatGPT)
   - `claude`: Claude Code autenticado com `claude login` (assinatura Claude) ou `ANTHROPIC_API_KEY`
+- Chave da TypeSafe em `JEV_API_KEY`: o modelo Jev classifica o serviço do catálogo (ID SPF) de cada tarefa. Opcional com `claude` e `codex`, que sem ela classificam com Haiku e Luna; obrigatória com `openai`
 
 ## 🛠 Instalação
 
@@ -57,7 +58,7 @@ Sem compilar, também é possível rodar `bun run <caminho-deste-repo>/src/index
 
 ```bash
 cd /caminho/do/repo-alvo
-commit-ia-task --sprintId "Projeto\\Sprint 1" --areaPathId "Projeto\\Area" [--assignedTo "Nome <email>"] [--itemContrato "Item 1"] [--aiProvider openai|codex|claude] [--branch feature/x [--baseBranch main]] [--createAzureTasks [--pbi 12345] --azureOrganization https://dev.azure.com/org --azureProject "Projeto"]
+commit-ia-task --sprintId "Projeto\\Sprint 1" --areaPathId "Projeto\\Area" [--assignedTo "Nome <email>"] [--itemContrato "Item 1"] [--aiProvider openai|codex|claude] [--noJev] [--branch feature/x [--baseBranch main]] [--createAzureTasks [--pbi 12345] --azureOrganization https://dev.azure.com/org --azureProject "Projeto"]
 ```
 
 ### Provedor de IA
@@ -135,6 +136,7 @@ az devops configure --defaults organization=https://dev.azure.com/minha-org proj
 | `--assignedTo`        | Responsável pelas tarefas                                                                      | valor salvo, senão `Ygor Azambuja <ygor.azambuja@infortechms.com.br>` |
 | `--itemContrato`      | Item de contrato no CSV                                                                        | valor salvo, senão `Item 1`                                           |
 | `--aiProvider`        | `openai`, `codex` ou `claude` (não é salvo)                                                    | `openai`                                                              |
+| `--noJev`             | Classifica o serviço com Haiku (`claude`) ou Luna (`codex`) em vez do Jev (não é salvo)        | usa o Jev se houver `JEV_API_KEY`                                     |
 | `--branch`            | Gera tarefas dos arquivos alterados nessa branch em vez das alterações pendentes (não é salvo) | desligado                                                             |
 | `--baseBranch`        | Branch ou commit base para `--branch` (não é salvo)                                            | `develop`, senão `origin/HEAD`, `main` ou `master`                    |
 | `--createAzureTasks`  | Cria as tarefas no Azure DevOps após gerar o CSV                                               | desligado                                                             |
@@ -217,6 +219,7 @@ Port do CLI Rust `timelog-bot` (repositório irmão), sem PAT: usa a credencial 
 
 - `LOG_LEVEL`: `debug`, `info` (padrão), `warn` ou `error`
 - `OPENAI_API_KEY`: obrigatória com `--aiProvider openai`
+- `JEV_API_KEY`: chave da TypeSafe usada para classificar o serviço de cada tarefa. Sem ela (ou com `--noJev`), `claude` classifica com `claude-haiku-5-5` e `codex` com `gpt-6-luna`; `openai` exige a chave. O CLI roda dentro do repositório alvo, então defina como variável de ambiente do usuário (um `.env` só é lido se estiver na pasta onde o comando roda)
 - `CODEX_MODEL`: modelo opcional para o Codex (usa a config do usuário se omitido)
 - `CLAUDE_MODEL`: modelo opcional para o Claude
 - `ANTHROPIC_API_KEY`: alternativa ao `claude login` com `--aiProvider claude`
@@ -233,9 +236,11 @@ O CSV tem as colunas:
 
 ### Regras de preenchimento
 
-- A IA gera por tarefa: título, descrição, `tipo` (`BACKEND`, `FRONTEND`, `TESTES`), `Complexidade` (`ALTA`, `MEDIA`, `BAIXA`, `ÚNICA`) e `Estimate Made` (inteiro de `1` a `8`)
-- `ID SPF` vem do tipo: `BACKEND` = 17, `FRONTEND` = 19, `TESTES` = 22
-- `UST` vem da complexidade: `BAIXA` = 8, `MEDIA` = 24, `ALTA` = 40, `ÚNICA` = 8
+- A IA gera por tarefa: título, descrição, `Complexidade` (`ALTA`, `MEDIA`, `BAIXA`) e `Estimate Made` (inteiro de `1` a `8`)
+- `ID SPF` é decidido pelo Jev (TypeSafe), que recebe arquivo, se é novo ou modificado, título e descrição, e escolhe um dos serviços de código do catálogo SPF-SIAFIC em `src/catalogo.ts` (ex.: `17` componente novo, `21E` correção de erro, `22` testes unitários). Os títulos e descrições das tarefas são enviados para `api.typesafe.ai`
+- `UST` é consultada no catálogo por serviço e complexidade (ex.: `17` = 8/24/40, `22` = 4/12/20, `21E` = 2). Serviço de nível único grava `Complexidade` `ÚNICA` e ignora a complexidade da IA
+- Escolha do Jev com probabilidade abaixo de 0,7 é lançada mesmo assim e gera um aviso no log (`Serviço classificado com baixa confiança; revise`)
+- Sem o Jev (`--noJev` ou sem `JEV_API_KEY`), o serviço é escolhido por Haiku (`claude`) ou Luna (`codex`) com o mesmo catálogo e as mesmas evidências. A confiança é declarada pelo próprio modelo, não é probabilidade medida: o Luna quase sempre declara acima de 0,9, então o aviso de baixa confiança raramente aparece
 - `Remaining Work` e `Original Estimate` recebem o valor de `Estimate Made`; estimativa inválida vira `1`
 - `Activity` é sempre `Development`
 

@@ -1,6 +1,5 @@
 import { basename, join, relative, resolve } from "node:path";
-import type { z } from "zod";
-import { createTasks, type expectedOutputTask } from "./ai";
+import { createTasks, type TaskFile } from "./ai";
 import type { AiProvider } from "./ai-provider";
 import { logger } from "./logger";
 
@@ -58,7 +57,7 @@ export async function getDiff(
 		files: files.map((f) => f.relPath),
 	});
 
-	const jsons: z.infer<typeof expectedOutputTask>[] = [];
+	const jsons: TaskFile[] = [];
 
 	const promises = files.map(async (fileMeta) => {
 		const fileName = fileMeta.relPath;
@@ -110,6 +109,8 @@ export async function getDiff(
 				{
 					file: fileMeta.absPath,
 					diff: fallbackContent,
+					relPath: fileMeta.relPath,
+					isNew: fileMeta.isNew,
 				},
 				{ provider: aiProvider },
 			);
@@ -132,6 +133,8 @@ export async function getDiff(
 			{
 				file: fileMeta.absPath,
 				diff: contentResult.content,
+				relPath: fileMeta.relPath,
+				isNew: fileMeta.isNew,
 			},
 			{ provider: aiProvider },
 		);
@@ -376,19 +379,23 @@ async function getBranchFileMetas(
 	gitFolder: string,
 	range: BranchRange,
 ): Promise<FileChangeMeta[]> {
-	const output = await runGit(
-		["diff", "--name-only", "-z", range.from, range.to],
-		gitFolder,
-	);
+	const names = (filter: string[]) =>
+		runGit(
+			["diff", "--name-only", "-z", ...filter, range.from, range.to],
+			gitFolder,
+		).then((output) => output.split("\0").filter(Boolean));
+	// "Novo ou já existia" é a evidência que separa os serviços de criação dos de manutenção.
+	const [all, added] = await Promise.all([
+		names([]),
+		names(["--diff-filter=A"]),
+	]);
 
-	return output
-		.split("\0")
-		.filter(Boolean)
+	return all
 		.filter((relPath) => !isIgnoredFile(relPath))
 		.map((relPath) => ({
 			relPath,
 			absPath: join(gitFolder, relPath),
-			isNew: false,
+			isNew: added.includes(relPath),
 			hasStaged: false,
 			hasUnstaged: false,
 			kind: "branch" as const,

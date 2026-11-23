@@ -5,6 +5,7 @@ import {
 	type AiProvider,
 	resolveAiProvider,
 	setAiProvider,
+	setJevAllowed,
 	validateAiProviderSetup,
 } from "./ai-provider";
 import { createAzureTasks, getAzureDevopsDefaults } from "./azure-devops";
@@ -60,6 +61,9 @@ const { values } = parseArgs({
 		noCsv: {
 			type: "boolean",
 		},
+		noJev: {
+			type: "boolean",
+		},
 	},
 	strict: true,
 	allowPositionals: true,
@@ -93,6 +97,7 @@ if (values.noCsv && !values.createAzureTasks) {
 }
 
 setAiProvider(aiProvider);
+setJevAllowed(!values.noJev);
 await validateAiProviderSetup(aiProvider);
 
 logger.info("🚀 Iniciando aplicação Commit IA Task");

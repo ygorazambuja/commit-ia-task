@@ -56,6 +56,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 ## Environment Requirements
 
 - `OPENAI_API_KEY`: required when using `--aiProvider openai` (default).
+- `JEV_API_KEY`: TypeSafe key used by `src/jev.ts` to classify each task's catalog service. Without it (or with `--noJev`), `src/classificador-ia.ts` classifies with `claude-haiku-5-5` (claude) or `gpt-6-luna` (codex); `openai` requires the key.
 - `CODEX_MODEL`: optional model override when using `--aiProvider codex`; otherwise the Codex SDK uses its configured default.
 - `CLAUDE_MODEL`: optional model override when using `--aiProvider claude` (auth via `claude login` or `ANTHROPIC_API_KEY`).
 - `LOG_LEVEL`: optional logging verbosity: `debug`, `info`, `warn`, or `error`.
@@ -71,6 +72,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 - `--assignedTo`: assignee value; defaults to `Ygor Azambuja <ygor.azambuja@infortechms.com.br>`.
 - `--itemContrato`: contract item value; defaults to `Item 1`.
 - `--aiProvider`: `openai`, `codex` or `claude`; defaults to `openai`.
+- `--noJev`: classify the service with the provider's fast model (Haiku for `claude`, Luna for `codex`) instead of Jev; not persisted.
 - `--branch`: analyze files changed on this branch (from its fork point to its tip) instead of the working tree; no `git add` in this mode.
 - `--baseBranch`: base branch or commit for `--branch`; defaults to `origin/develop` or `develop` (case-insensitive), then `origin/HEAD`, `main`, `master`.
 - `--createAzureTasks`: when present, creates Azure DevOps work items after generating the CSV.
@@ -93,7 +95,7 @@ az devops configure -l
 
 1. `src/index.ts` validates provider setup, loads/persists configuration, orchestrates Git analysis, CSV generation, and optional Azure DevOps creation.
 2. `src/git.ts` discovers changed files, collects the best payload for each file (new full file, staged diff, unstaged diff, or combined staged/unstaged diff), calls AI generation, and stages successfully processed files with `git add`.
-3. `src/ai.ts` routes generation to OpenAI, Codex or Claude and normalizes task output.
+3. `src/ai.ts` routes generation to OpenAI, Codex or Claude, normalizes task output, then asks Jev (`src/jev.ts`, TypeSafe hosted model) which catalog service (`ID SPF`) each task is. Services, UST values and the criteria sent to Jev live in `src/catalogo.ts`. When Jev is off (`usesJev()` in `src/ai-provider.ts`), `src/classificador-ia.ts` asks Haiku or Luna instead; its confidence is self-reported, not a measured probability.
 4. `src/csv.ts` converts generated tasks into Azure DevOps-compatible task records and writes `tasks-{day}-{month}-{hour}-{minute}.csv`.
 5. `src/azure-devops.ts` optionally creates tasks through `az boards work-item create`.
 
@@ -162,8 +164,8 @@ az devops configure -l
   - `State`: `To Do`
   - `Activity`: `Development`
 - Derived values:
-  - `ID SPF` from `tipo`: BACKEND `17`, FRONTEND `19`, TESTES `22`
-  - `UST` from `complexidade`: BAIXA `8`, MEDIA `24`, ALTA `40`, ÚNICA `8`
+  - `ID SPF`: the service Jev chose (a string such as `17`, `22` or `21E`); below probability 0.7 the task is still emitted and a warning is logged
+  - `UST`: catalog lookup by service and complexity (`resolveUst`); a complexity the service does not have falls to its first level, so single-level services become `ÚNICA`
 - `Remaining Work` and `Original Estimate` mirror `Estimate Made`.
 - Sanitizes generated text into single-line CSV-safe strings.
 

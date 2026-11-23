@@ -7,8 +7,11 @@ import {
 	buildTaskGenerationSystemPrompt,
 	type TaskGenerationInput,
 } from "./ai-prompt";
-import { type AiProvider, getAiProvider } from "./ai-provider";
-import { expectedOutputTask, sanitizeTask } from "./ai-schema";
+import { type AiProvider, getAiProvider, usesJev } from "./ai-provider";
+import { type Complexity, expectedOutputTask, sanitizeTask } from "./ai-schema";
+import { resolveUst } from "./catalogo";
+import { classifyServicoIa } from "./classificador-ia";
+import { classifyServico, MIN_PROBABILITY } from "./jev";
 import { formatDuration, logger } from "./logger";
 
 export {
@@ -18,8 +21,6 @@ export {
 	normalizeComplexidade,
 	normalizeEstimate,
 	sanitizeTask,
-	type TaskType,
-	taskTypes,
 } from "./ai-schema";
 
 const openaiApiClient = createOpenAI({
@@ -30,10 +31,20 @@ export type CreateTasksOptions = {
 	provider?: AiProvider;
 };
 
+export type ClassifiedTask = {
+	title: string;
+	description: string;
+	idSpf: string;
+	complexidade: Complexity;
+	estimateMade: number;
+};
+
+export type TaskFile = { fullFilePath: string; tasks: ClassifiedTask[] };
+
 export const createTasks = async (
-	{ file, diff }: TaskGenerationInput,
+	{ file, diff, relPath, isNew = false }: TaskGenerationInput,
 	options: CreateTasksOptions = {},
-) => {
+): Promise<TaskFile> => {
 	const provider = options.provider ?? getAiProvider();
 	const fileName = file.split("/").pop() || file;
 	logger.info("🤖 Processando arquivo com IA", { fileName, provider });
@@ -41,12 +52,45 @@ export const createTasks = async (
 	const startTime = Date.now();
 
 	try {
-		const result =
+		const generated =
 			provider === "codex"
 				? await getCodexResponse({ file, diff })
 				: provider === "claude"
 					? await getClaudeResponse({ file, diff })
 					: await getOpenaiResponse({ file, diff });
+
+		// A IA descreve a mudança; o Jev (ou o modelo rápido do provedor) decide o serviço do catálogo, e a UST sai de (serviço, complexidade).
+		const tasks = await Promise.all(
+			generated.tasks.map(async (task): Promise<ClassifiedTask> => {
+				const input = {
+					arquivo: relPath ?? fileName,
+					isNew,
+					title: task.title,
+					description: task.description,
+				};
+				const { idSpf, probability } = usesJev()
+					? await classifyServico(input)
+					: await classifyServicoIa(input, provider);
+
+				if (probability < MIN_PROBABILITY) {
+					logger.warn("⚠️ Serviço classificado com baixa confiança; revise", {
+						fileName,
+						title: task.title,
+						idSpf,
+						probability,
+					});
+				}
+
+				return {
+					title: task.title,
+					description: task.description,
+					idSpf,
+					complexidade: resolveUst(idSpf, task.complexidade).complexidade,
+					estimateMade: task.estimateMade,
+				};
+			}),
+		);
+		const result = { fullFilePath: generated.fullFilePath, tasks };
 		const duration = Date.now() - startTime;
 
 		logger.info("✅ IA processou arquivo com sucesso", {
@@ -57,7 +101,7 @@ export const createTasks = async (
 			tasks: result.tasks.map((t) => ({
 				title: t.title,
 				descriptionLength: t.description.length,
-				tipo: t.tipo,
+				idSpf: t.idSpf,
 				complexidade: t.complexidade,
 				estimateMade: t.estimateMade,
 			})),
@@ -112,7 +156,6 @@ const getOpenaiResponse = async ({ file, diff }: TaskGenerationInput) => {
 						hasTitleAndDescription: !!(task.title && task.description),
 						titleLength: task.title.length,
 						descriptionLength: task.description.length,
-						tipo: task.tipo,
 						complexidade: task.complexidade,
 						estimateMade: task.estimateMade,
 					};

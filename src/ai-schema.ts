@@ -2,20 +2,15 @@ import { z } from "zod";
 
 export const allowedComplexities = ["ALTA", "MEDIA", "BAIXA", "ÚNICA"] as const;
 export type Complexity = (typeof allowedComplexities)[number];
-export const taskTypes = ["BACKEND", "FRONTEND", "TESTES"] as const;
-export type TaskType = (typeof taskTypes)[number];
 
 export const expectedOutputTask = z.object({
 	tasks: z.array(
 		z.object({
 			title: z.string().describe("O titulo da tarefa"),
 			description: z.string().describe("A descrição da tarefa"),
-			tipo: z
-				.enum(taskTypes)
-				.describe("O tipo da alteração: BACKEND, FRONTEND ou TESTES"),
 			complexidade: z
 				.string()
-				.describe("A complexidade da tarefa: ALTA, MEDIA, BAIXA ou ÚNICA"),
+				.describe("A complexidade da tarefa: ALTA, MEDIA ou BAIXA"),
 			estimateMade: z
 				.number()
 				.describe("Estimativa da tarefa como número inteiro entre 1 e 8"),

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveUst } from "../src/catalogo";
 import { buildCsvFile } from "../src/csv";
 
 const originalCwd = process.cwd();
@@ -32,7 +33,7 @@ describe("buildCsvFile", () => {
 						{
 							title: " Criar\nCSV ",
 							description: "Linha 1\r\nLinha 2",
-							tipo: "BACKEND",
+							idSpf: "17",
 							complexidade: "MEDIA",
 							estimateMade: 5,
 						},
@@ -57,7 +58,15 @@ describe("buildCsvFile", () => {
 		expect(csv).toContain("MEDIA,Development,Linha 1 Linha 2,5,5,5");
 	});
 
-	test("maps complexities to their UST values", async () => {
+	test("takes UST and complexity from the service catalog", async () => {
+		const task = (title: string, idSpf: string, complexidade: string) => ({
+			title,
+			description: title,
+			idSpf,
+			complexidade: complexidade as "BAIXA",
+			estimateMade: 1,
+		});
+
 		await buildCsvFile({
 			assignedTo: "Pessoa <dev@example.com>",
 			areaId: "AREA-1",
@@ -67,34 +76,12 @@ describe("buildCsvFile", () => {
 				{
 					fullFilePath: "/repo/src/example.ts",
 					tasks: [
-						{
-							title: "Fácil",
-							description: "Ajuste simples",
-							tipo: "BACKEND",
-							complexidade: "BAIXA",
-							estimateMade: 1,
-						},
-						{
-							title: "Médio",
-							description: "Ajuste moderado",
-							tipo: "BACKEND",
-							complexidade: "MEDIA",
-							estimateMade: 3,
-						},
-						{
-							title: "Difícil",
-							description: "Ajuste complexo",
-							tipo: "BACKEND",
-							complexidade: "ALTA",
-							estimateMade: 5,
-						},
-						{
-							title: "Única",
-							description: "Tarefa isolada",
-							tipo: "BACKEND",
-							complexidade: "ÚNICA",
-							estimateMade: 1,
-						},
+						task("Componente", "17", "ALTA"),
+						task("Teste", "22", "MEDIA"),
+						// Serviço de nível único ignora a complexidade da IA.
+						task("Bug", "21E", "ALTA"),
+						// Complexidade que o serviço não tem cai no primeiro nível dele.
+						task("Regra", "18", "ÚNICA"),
 					],
 				},
 			],
@@ -102,58 +89,15 @@ describe("buildCsvFile", () => {
 
 		const csvFiles = Array.from(new Bun.Glob("tasks-*.csv").scanSync(tempDir));
 		const csv = await readFile(join(tempDir, csvFiles[0]), "utf8");
-		expect(csv).toContain("Item 1,17,8,BAIXA");
-		expect(csv).toContain("Item 1,17,24,MEDIA");
 		expect(csv).toContain("Item 1,17,40,ALTA");
-		expect(csv).toContain("Item 1,17,8,ÚNICA");
+		expect(csv).toContain("Item 1,22,12,MEDIA");
+		expect(csv).toContain("Item 1,21E,2,ÚNICA");
+		expect(csv).toContain("Item 1,18,3,BAIXA");
 	});
 
-	test("maps task types to their SPF IDs", async () => {
-		await buildCsvFile({
-			assignedTo: "Pessoa <dev@example.com>",
-			areaId: "AREA-1",
-			sprintId: "SPRINT-2",
-			itemContrato: "Item 1",
-			files: [
-				{
-					fullFilePath: "/repo/src/example.ts",
-					tasks: [
-						{
-							title: "Backend",
-							description: "API",
-							tipo: "BACKEND",
-							complexidade: "BAIXA",
-							estimateMade: 1,
-						},
-						{
-							title: "Frontend",
-							description: "Interface",
-							tipo: "FRONTEND",
-							complexidade: "BAIXA",
-							estimateMade: 1,
-						},
-						{
-							title: "Testes",
-							description: "Cobertura",
-							tipo: "TESTES",
-							complexidade: "BAIXA",
-							estimateMade: 1,
-						},
-					],
-				},
-			],
-		});
-
-		const csvFiles = Array.from(new Bun.Glob("tasks-*.csv").scanSync(tempDir));
-		const csv = await readFile(join(tempDir, csvFiles[0]), "utf8");
-		expect(csv).toContain(
-			"Backend,Pessoa <dev@example.com>,To Do,AREA-1,SPRINT-2,Item 1,17",
-		);
-		expect(csv).toContain(
-			"Frontend,Pessoa <dev@example.com>,To Do,AREA-1,SPRINT-2,Item 1,19",
-		);
-		expect(csv).toContain(
-			"Testes,Pessoa <dev@example.com>,To Do,AREA-1,SPRINT-2,Item 1,22",
+	test("rejects a service that is not in the catalog", () => {
+		expect(() => resolveUst("99", "BAIXA")).toThrow(
+			"Serviço 99 não está no catálogo",
 		);
 	});
 

@@ -59,7 +59,7 @@ describe("getDiff", () => {
 const results = await getDiff(${JSON.stringify(targetRepository)}, {
 	taskCreator: async ({ file }) => ({
 		fullFilePath: file,
-		tasks: [{ title: "Teste", description: "Teste", tipo: "TESTES", complexidade: "BAIXA", estimateMade: 1 }],
+		tasks: [{ title: "Teste", description: "Teste", idSpf: "22", complexidade: "BAIXA", estimateMade: 1 }],
 	}),
 });
 if (results.length !== 1 || !results[0]?.fullFilePath.endsWith(${JSON.stringify("ação com espaço.ts")})) process.exit(2);
@@ -90,8 +90,8 @@ if (results.length !== 1 || !results[0]?.fullFilePath.endsWith(${JSON.stringify(
 					{
 						title: "Teste",
 						description: "Teste",
-						tipo: "TESTES",
-						complexidade: "BAIXA",
+						idSpf: "22",
+						complexidade: "BAIXA" as const,
 						estimateMade: 1,
 					},
 				],
@@ -110,7 +110,7 @@ if (results.length !== 1 || !results[0]?.fullFilePath.endsWith(${JSON.stringify(
 				{
 					title: "Teste",
 					description: "Teste",
-					tipo: "TESTES" as const,
+					idSpf: "22",
 					complexidade: "BAIXA" as const,
 					estimateMade: 1,
 				},

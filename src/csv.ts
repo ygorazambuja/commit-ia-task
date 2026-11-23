@@ -1,29 +1,8 @@
 import { existsSync } from "node:fs";
 import { createObjectCsvWriter } from "csv-writer";
-import type { z } from "zod";
-import type { expectedOutputTask } from "./ai";
-import {
-	type Complexity,
-	normalizeComplexidade,
-	type TaskType,
-} from "./ai-schema";
+import type { TaskFile } from "./ai";
+import { resolveUst } from "./catalogo";
 import { logger } from "./logger";
-
-const SPF_ID_BY_TASK_TYPE: Record<TaskType, number> = {
-	BACKEND: 17,
-	FRONTEND: 19,
-	TESTES: 22,
-};
-
-const UST_BY_COMPLEXITY: Record<Complexity, number> = {
-	BAIXA: 8,
-	MEDIA: 24,
-	ALTA: 40,
-	ÚNICA: 8,
-};
-
-const getUst = (complexity: string) =>
-	UST_BY_COMPLEXITY[normalizeComplexidade(complexity)];
 
 const writeHeader = () => [
 	"ID",
@@ -60,24 +39,27 @@ export const buildTaskRecords = ({
 	itemContrato,
 }: BuildCsvInput): TaskRecord[] => {
 	return files.flatMap(({ tasks }) =>
-		tasks.map((t) => ({
-			ID: "",
-			"Work Item Type": "Task",
-			Title: sanitizeCsvText(t.title),
-			"Assigned To": sanitizeCsvText(assignedTo),
-			State: "To Do",
-			"Area ID": areaId,
-			"Iteration ID": sprintId,
-			"Item Contrato": sanitizeCsvText(itemContrato),
-			"ID SPF": SPF_ID_BY_TASK_TYPE[t.tipo],
-			UST: getUst(t.complexidade),
-			Complexidade: t.complexidade,
-			Activity: "Development",
-			Description: sanitizeCsvText(t.description),
-			"Estimate Made": t.estimateMade,
-			"Remaining Work": t.estimateMade,
-			"Original Estimate": t.estimateMade,
-		})),
+		tasks.map((t) => {
+			const { ust, complexidade } = resolveUst(t.idSpf, t.complexidade);
+			return {
+				ID: "",
+				"Work Item Type": "Task",
+				Title: sanitizeCsvText(t.title),
+				"Assigned To": sanitizeCsvText(assignedTo),
+				State: "To Do",
+				"Area ID": areaId,
+				"Iteration ID": sprintId,
+				"Item Contrato": sanitizeCsvText(itemContrato),
+				"ID SPF": t.idSpf,
+				UST: ust,
+				Complexidade: complexidade,
+				Activity: "Development",
+				Description: sanitizeCsvText(t.description),
+				"Estimate Made": t.estimateMade,
+				"Remaining Work": t.estimateMade,
+				"Original Estimate": t.estimateMade,
+			};
+		}),
 	);
 };
 
@@ -156,7 +138,7 @@ export const buildCsvFile = async ({
 };
 
 type BuildCsvInput = {
-	files: z.infer<typeof expectedOutputTask>[];
+	files: TaskFile[];
 	assignedTo: string;
 	areaId: string;
 	sprintId: string;
@@ -172,7 +154,7 @@ export type TaskRecord = {
 	"Area ID": string;
 	"Iteration ID": string;
 	"Item Contrato": string;
-	"ID SPF": number;
+	"ID SPF": string;
 	UST: number;
 	Complexidade: string;
 	Activity: "Development";

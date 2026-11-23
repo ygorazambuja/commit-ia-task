@@ -18,7 +18,7 @@ const record: TaskRecord = {
 	"Area ID": "Projeto\\Area",
 	"Iteration ID": "Projeto\\Sprint 1",
 	"Item Contrato": "Item 1",
-	"ID SPF": 19,
+	"ID SPF": "19",
 	UST: 4,
 	Complexidade: "MEDIA",
 	Activity: "Development",

@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
 	buildTaskGenerationPrompt,
@@ -19,17 +20,38 @@ export async function getClaudeResponse({ file, diff }: TaskGenerationInput) {
 		diffLength: diff.length,
 	});
 
-	for await (const message of query({
-		prompt: buildTaskGenerationPrompt({ file, diff }),
-		options: {
+	const parsed = await queryClaude(
+		buildTaskGenerationPrompt({ file, diff }),
+		expectedOutputTask,
+		{
 			systemPrompt: buildTaskGenerationSystemPrompt(),
-			tools: [], // sem ferramentas: o diff já vem no prompt
-			persistSession: false,
-			outputFormat: {
-				type: "json_schema",
-				schema: zodToJsonSchema(expectedOutputTask),
-			},
 			...(model ? { model } : {}),
+		},
+	);
+	logger.debug("📥 Resposta recebida do Claude", {
+		fileName,
+		tasksCount: parsed.tasks.length,
+	});
+
+	return {
+		fullFilePath: parsed.fullFilePath,
+		tasks: parsed.tasks.map(sanitizeTask),
+	};
+}
+
+// Uma chamada sem ferramentas (o conteúdo já vem no prompt) que devolve JSON validado pelo schema.
+export async function queryClaude<T>(
+	prompt: string,
+	schema: z.ZodType<T>,
+	options: { systemPrompt?: string; model?: string; effort?: "low" },
+): Promise<T> {
+	for await (const message of query({
+		prompt,
+		options: {
+			tools: [],
+			persistSession: false,
+			outputFormat: { type: "json_schema", schema: zodToJsonSchema(schema) },
+			...options,
 		},
 	})) {
 		if (message.type !== "result") continue;
@@ -44,16 +66,7 @@ export async function getClaudeResponse({ file, diff }: TaskGenerationInput) {
 			);
 		}
 
-		const parsed = expectedOutputTask.parse(message.structured_output);
-		logger.debug("📥 Resposta recebida do Claude", {
-			fileName,
-			tasksCount: parsed.tasks.length,
-		});
-
-		return {
-			fullFilePath: parsed.fullFilePath,
-			tasks: parsed.tasks.map(sanitizeTask),
-		};
+		return schema.parse(message.structured_output);
 	}
 
 	throw new Error("Claude encerrou sem mensagem de resultado");

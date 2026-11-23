@@ -10,7 +10,13 @@ import {
 	getAiProvider,
 	resolveAiProvider,
 	setAiProvider,
+	setJevAllowed,
+	usesJev,
 } from "../src/ai-provider";
+import {
+	buildClassificationPrompt,
+	classifyServicoIa,
+} from "../src/classificador-ia";
 
 describe("AI task normalization", () => {
 	test("normalizes complexity values to the allowed set", () => {
@@ -37,14 +43,12 @@ describe("AI task normalization", () => {
 			sanitizeTask({
 				title: "Criar exportação",
 				description: "Gera CSV de tarefas",
-				tipo: "BACKEND",
 				complexidade: " media ",
 				estimateMade: 3,
 			}),
 		).toEqual({
 			title: "Criar exportação",
 			description: "Gera CSV de tarefas",
-			tipo: "BACKEND",
 			complexidade: "MEDIA",
 			estimateMade: 3,
 		});
@@ -74,6 +78,48 @@ describe("AI provider resolution", () => {
 		expect(getAiProvider()).toBe("codex");
 		setAiProvider("openai");
 	});
+
+	test("uses Jev only with a key and without --noJev", () => {
+		const key = Bun.env.JEV_API_KEY;
+		try {
+			Bun.env.JEV_API_KEY = "chave";
+			expect(usesJev()).toBe(true);
+			setJevAllowed(false);
+			expect(usesJev()).toBe(false);
+			setJevAllowed(true);
+			delete Bun.env.JEV_API_KEY;
+			expect(usesJev()).toBe(false);
+		} finally {
+			setJevAllowed(true);
+			if (key) Bun.env.JEV_API_KEY = key;
+		}
+	});
+});
+
+describe("Service classification without Jev", () => {
+	const input = {
+		arquivo: "src/Services/EmpenhoService.php",
+		isNew: true,
+		title: "Correção do cálculo de saldo",
+		description: "Corrige a soma em dobro.",
+	};
+
+	test("prompt carries the catalog and the task evidence", () => {
+		const prompt = buildClassificationPrompt(input);
+
+		expect(prompt).toContain("- 21E: ");
+		expect(prompt).toContain("- 17: ");
+		expect(prompt).toContain(
+			"Arquivo: src/Services/EmpenhoService.php (arquivo novo)",
+		);
+		expect(prompt).toContain("Título: Correção do cálculo de saldo");
+	});
+
+	test("openai has no classifier without Jev", () => {
+		expect(classifyServicoIa(input, "openai")).rejects.toThrow(
+			"exige o provedor claude ou codex",
+		);
+	});
 });
 
 describe("Codex response parsing", () => {
@@ -85,7 +131,6 @@ describe("Codex response parsing", () => {
 					{
 						title: "Atualizar CLI",
 						description: "Adiciona flag de provider",
-						tipo: "BACKEND",
 						complexidade: "MEDIA",
 						estimateMade: 3,
 					},
@@ -121,6 +166,6 @@ describe("Task generation prompt", () => {
 		expect(prompt).toContain("/tmp/src/index.ts");
 		expect(prompt).toContain("+ console.log('test');");
 		expect(prompt).toContain("Gere poucas tarefas");
-		expect(prompt).toContain("BACKEND, FRONTEND ou TESTES");
+		expect(prompt).toContain("ALTA, MEDIA, BAIXA.");
 	});
 });

@@ -134,7 +134,7 @@ export const registerDaily = async ({
 		"Area ID": areaPathId,
 		"Iteration ID": sprintId,
 		"Item Contrato": itemContrato,
-		"ID SPF": 17,
+		"ID SPF": "17",
 		UST: 1,
 		Complexidade: "BAIXA",
 		Activity: "Development",

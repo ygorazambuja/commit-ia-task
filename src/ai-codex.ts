@@ -10,6 +10,7 @@ import { logger } from "./logger";
 
 // Lazy: `new Codex()` exige o binário do Codex CLI, só deve rodar com --aiProvider codex
 let codexClient: Codex | undefined;
+export const getCodexClient = () => (codexClient ??= new Codex());
 
 export function parseCodexTaskResponse(
 	finalResponse: string,
@@ -39,8 +40,7 @@ export async function getCodexResponse({ file, diff }: TaskGenerationInput) {
 	});
 
 	try {
-		codexClient ??= new Codex();
-		const thread = codexClient.startThread({
+		const thread = getCodexClient().startThread({
 			sandboxMode: "read-only",
 			approvalPolicy: "never",
 			...(model ? { model } : {}),
@@ -63,7 +63,6 @@ export async function getCodexResponse({ file, diff }: TaskGenerationInput) {
 						hasTitleAndDescription: !!(task.title && task.description),
 						titleLength: task.title.length,
 						descriptionLength: task.description.length,
-						tipo: task.tipo,
 						complexidade: task.complexidade,
 						estimateMade: task.estimateMade,
 					};
