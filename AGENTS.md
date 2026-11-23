@@ -1,189 +1,76 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Canonical engineering guide for **Infortech Automation**, a Tauri 2 desktop app
+and Rust CLI for Git-to-task generation, Azure DevOps, and Time Log Free.
+`CLAUDE.md` delegates here; the domain contracts below are part of this guide.
 
-## Project Overview
+## Before changing code
 
-**Commit IA Task** is an automated task generation CLI. It analyzes Git changes, asks an AI provider to generate structured task descriptions in Brazilian Portuguese, writes an Azure DevOps-compatible CSV, and can optionally create Azure DevOps work items directly.
+1. Inspect the working tree and preserve unrelated changes.
+2. Read the contract for every affected domain before editing:
 
-The project runs on **Bun**, not Node.js. TypeScript is strict, ES modules are used throughout, and runtime code should prefer Bun APIs such as `Bun.spawn()`, `Bun.env`, `Bun.file()`, `Bun.write()`, and Bun shell where appropriate.
+   | When changing… | Required contract |
+   | --- | --- |
+   | Settings, onboarding, credentials, prompts, AI models or provider execution | [Configuration and providers](docs/engineering/configuration.md) |
+   | Git inspection/staging, task generation, CSV, Azure creation or the task CLI | [Generation and export](docs/engineering/generation.md) |
+   | Time Log authentication, capacity, scheduling or combined generation | [Time Log](docs/engineering/time-log.md) |
+   | Minhas tarefas, Azure polling, notifications or Fazer/card analysis | [My tasks and analysis](docs/engineering/my-tasks.md) |
 
-## Common Commands
+3. Use the implementation map below to find the owner. Read command registrations
+   in [lib.rs](src-tauri/src/lib.rs) and typed frontend signatures in
+   [desktop.ts](src/desktop.ts), rather than maintaining another command catalog.
+4. Run focused checks while iterating; finish with the validation policy below.
 
-### Development
+## Shared boundaries
 
-```bash
-# Install dependencies
-bun install
+- Rust owns Git, AI/network requests, filesystem access, subprocesses,
+  configuration, CSV and Azure integrations. React owns presentation state.
+  Bun installs/builds/tests the frontend; it is not the native runtime.
+- [src/desktop.ts](src/desktop.ts) is the only React-to-Tauri invoke/event bridge.
+  Keep [src/types.ts](src/types.ts) compatible with the Rust serialized DTOs.
+  Prefer small typed commands to arbitrary path/command executors.
+- Use argument arrays, explicit stdin and cwd through
+  [process.rs](src-tauri/src/process.rs); never interpolate input into shell strings.
+- Keep credentials out of saved nonsecret config, command responses, warnings
+  and logs. Repeat privileged input, identity and provider checks in Rust.
+- User-facing copy, prompts, validation and generated content use Brazilian
+  Portuguese unless an external API requires a fixed value.
+- Preserve partial successes and their warnings; detailed domain rules below
+  define which side effects may follow a failure.
 
-# Run with OpenAI API key provider
-bun run src/index.ts --aiProvider openai --sprintId "SPRINT_ID" --areaPathId "AREA_PATH_ID"
+## Implementation map
 
-# Run with Codex subscription provider (requires `codex login`)
-bun run src/index.ts --aiProvider codex --sprintId "SPRINT_ID" --areaPathId "AREA_PATH_ID"
+| Responsibility | Owner |
+| --- | --- |
+| Native initialization, GUI PATH repair, command registry | [lib.rs](src-tauri/src/lib.rs) |
+| Setup and generation orchestration, progress, CSV registry | [commands.rs](src-tauri/src/commands.rs) |
+| Git root, payload and safe staging | [git.rs](src-tauri/src/git.rs) |
+| Provider execution, prompt/schema and model discovery | [ai.rs](src-tauri/src/ai.rs), [ai/catalog.rs](src-tauri/src/ai/catalog.rs) |
+| CSV projection and sequential Azure creation | [export.rs](src-tauri/src/export.rs) |
+| Compatible config, PAT and prompt stores | [config.rs](src-tauri/src/config.rs) |
+| Shared task CLI adapter | [cli.rs](src-tauri/src/cli.rs), [bin/infortech.rs](src-tauri/src/bin/infortech.rs) |
+| Shared Time Log protocol and pure interval planner | [time_log.rs](src-tauri/src/time_log.rs), [time_log/batch.rs](src-tauri/src/time_log/batch.rs) |
+| Polling, cache, notifications and account transitions | [azure_tasks.rs](src-tauri/src/azure_tasks.rs) |
+| Azure Boards reads and plan-only Codex execution | [azure_boards.rs](src-tauri/src/azure_boards.rs), [card_analysis.rs](src-tauri/src/card_analysis.rs) |
+| Desktop workflow and domain panels | [App.tsx](src/App.tsx), [TimeLogPanel.tsx](src/TimeLogPanel.tsx), [PromptPanel.tsx](src/PromptPanel.tsx), [MyTasksPanel.tsx](src/MyTasksPanel.tsx) |
 
-# Run and create Azure DevOps tasks after CSV generation
-bun run src/index.ts --aiProvider codex --sprintId "PROJECT\\SPRINT" --areaPathId "PROJECT\\AREA" --createAzureTasks
+[README.md](README.md) contains setup and operating instructions. The documents
+under [docs/architecture](docs/architecture/README.md) are proposed work packets,
+not a description of the current implementation or authorization to refactor it.
 
-# Format and apply Biome fixes
-bun run format
+## Validation and style
 
-# Run tests
-bun test
-
-# Run tests with coverage
-bun run test:coverage
-```
-
-### Logging Levels
-
-```bash
-# Default is info
-bun run src/index.ts --sprintId "123" --areaPathId "456"
-
-# Verbose debug logging
-LOG_LEVEL=debug bun run src/index.ts --sprintId "123" --areaPathId "456"
-
-# Error-only logging
-LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
-```
-
-## Environment Requirements
-
-- `OPENAI_API_KEY`: required when using `--aiProvider openai` (default).
-- `CODEX_MODEL`: optional model override when using `--aiProvider codex`; otherwise the Codex SDK uses its configured default.
-- `LOG_LEVEL`: optional logging verbosity: `debug`, `info`, `warn`, or `error`.
-- `COMMIT_IA_TASK_CONFIG_DIR`: optional directory override for the persisted `config.json`.
-- Azure CLI plus the Azure DevOps extension are required only when using `--createAzureTasks`.
-
-## CLI Behavior
-
-`src/index.ts` parses these flags:
-
-- `--sprintId`: iteration path/ID used in CSV and Azure DevOps task creation.
-- `--areaPathId`: area path/ID used in CSV and Azure DevOps task creation.
-- `--assignedTo`: assignee value; defaults to `Ygor Azambuja <ygor.azambuja@infortechms.com.br>`.
-- `--itemContrato`: contract item value; defaults to `Item 1`.
-- `--aiProvider`: `openai` or `codex`; defaults to `openai`.
-- `--createAzureTasks`: when present, creates Azure DevOps work items after generating the CSV.
-- `--azureOrganization`: Azure DevOps organization URL, for example `https://dev.azure.com/org`.
-- `--azureProject`: Azure DevOps project name or ID.
-
-Configuration is persisted between runs. The CLI loads saved values, merges them with flags, prompts for editable values in an interactive terminal, and writes the final config back to disk. On macOS the default config file is under `~/Library/Application Support/commit-ia-task/config.json`.
-
-When Azure organization/project are not passed or saved, the app attempts to read defaults from:
-
-```bash
-az devops configure -l
-```
-
-## Architecture Overview
-
-### Data Flow
-
-1. `src/index.ts` validates provider setup, loads/persists configuration, orchestrates Git analysis, CSV generation, and optional Azure DevOps creation.
-2. `src/git.ts` discovers changed files, collects the best payload for each file (new full file, staged diff, unstaged diff, or combined staged/unstaged diff), calls AI generation, and stages successfully processed files with `git add`.
-3. `src/ai.ts` routes generation to OpenAI or Codex and normalizes task output.
-4. `src/csv.ts` converts generated tasks into Azure DevOps-compatible task records and writes `tasks-{day}-{month}-{hour}-{minute}.csv`.
-5. `src/azure-devops.ts` optionally creates tasks through `az boards work-item create`.
-
-### Key Components
-
-**`src/index.ts`**
-- Entry point and top-level workflow.
-- Uses `node:util.parseArgs` and `node:readline/promises`.
-- Validates `OPENAI_API_KEY` for OpenAI or Codex CLI availability for Codex.
-- Saves effective config on every successful setup pass.
-
-**`src/config.ts`**
-- Owns persisted configuration loading/saving.
-- Uses OS-specific config directories, with `COMMIT_IA_TASK_CONFIG_DIR` as an override.
-- Logs config failures as warnings and continues with defaults/flags.
-
-**`src/git.ts`**
-- Detects unstaged, staged, mixed, and new files.
-- Ignores lock files: `pnpm-lock.yaml`, `bun.lockb`, and `package-lock.json`.
-- Sends file work to AI in parallel with `Promise.allSettled()` so one failed file does not stop all processing.
-- Stages only successfully processed files.
-
-**`src/ai-provider.ts`**
-- Defines provider values: `openai` and `codex`.
-- Resolves CLI input, stores the configured provider, and validates provider prerequisites.
-
-**`src/ai.ts`**
-- Main task generation facade.
-- Uses `@ai-sdk/openai` + `ai` for OpenAI generation and `src/ai-codex.ts` for Codex generation.
-- The current OpenAI model call uses `gpt-5-nano`.
-
-**`src/ai-codex.ts`**
-- Uses `@openai/codex-sdk`.
-- Authenticates via the local Codex CLI session (`codex login`), not an API key.
-- Runs Codex with `sandboxMode: "read-only"` and `approvalPolicy: "never"`.
-- Requests structured JSON with `outputSchema`.
-
-**`src/ai-prompt.ts`**
-- Centralizes the Brazilian Portuguese task-generation prompt.
-- Instructs the model to generate few, grouped, client-friendly tasks without markdown.
-
-**`src/ai-schema.ts`**
-- Defines the Zod schema for AI output.
-- Normalizes `complexidade` to `ALTA`, `MEDIA`, `BAIXA`, or `ÚNICA`.
-- Normalizes invalid `estimateMade` values to `1`.
-
-**`src/csv.ts`**
-- Uses `csv-writer`.
-- Fixed values include:
-  - `Work Item Type`: `Task`
-  - `State`: `To Do`
-  - `ID SPF`: `19`
-  - `UST`: `4`
-  - `Activity`: `Development`
-- `Remaining Work` and `Original Estimate` mirror `Estimate Made`.
-- Sanitizes generated text into single-line CSV-safe strings.
-
-**`src/azure-devops.ts`**
-- Wraps Azure CLI calls.
-- Reads defaults from `az devops configure -l`.
-- Creates work items with title, description, assignee, state, area, iteration, activity, original estimate, and remaining work.
-
-**`src/logger.ts`**
-- Custom logger with `debug`, `info`, `warn`, and `error`.
-- Uses colored output and structured metadata.
-- Exposes helpers such as `formatDuration()` and `formatFileSize()`.
-
-## Tests
-
-Tests live under `tests/` and use Bun's test runner.
-
-Prefer focused tests for behavior changes in:
-
-- `tests/ai.test.ts`
-- `tests/azure-devops.test.ts`
-- `tests/config.test.ts`
-- `tests/csv.test.ts`
-- `tests/logger.test.ts`
-
-Run the relevant test file when possible, then run the full suite for shared behavior changes:
-
-```bash
-bun test tests/csv.test.ts
-bun test
-```
-
-## Code Style
-
-- Formatter/linter: Biome 2.x.
-- Indentation: tabs.
-- Quotes: double quotes.
-- TypeScript: strict mode, `moduleResolution: "bundler"`, no emit.
-- Keep runtime implementation Bun-first.
-- Keep user-facing logs, prompts, generated descriptions, and CLI text in **Brazilian Portuguese** unless a third-party API requires otherwise.
-- Prefer structured APIs/parsers over ad hoc string handling when available.
-
-## Important Notes
-
-- Do not treat this as a Node.js CLI. Avoid adding Node-only runtime assumptions when Bun already provides the needed API.
-- AI task output must remain schema-valid and sanitized before CSV/Azure DevOps use.
-- File processing is intentionally fault-tolerant: failed files are logged, successful files still produce tasks.
-- The app stages files after successful task generation; be careful when changing `src/git.ts` because it affects the user's working tree.
-- Generated CSV files are intended for Azure DevOps import, and direct Azure creation uses the same generated task records.
+- [package.json](package.json) is the source for runnable commands. Use
+  `bun run validate:frontend` or `bun run validate:rust` for the affected layer;
+  `bun run validate` runs the complete gate. The desktop CI workflow is
+  [.github/workflows/build-desktop.yml](.github/workflows/build-desktop.yml).
+- In parallel work, each agent runs focused checks for its changes; the main
+  agent runs the complete gate once after integration. Repeat only when further
+  changes, failures or unresolved concerns justify it.
+- Frontend tests use Vitest, Testing Library and jsdom with `src/desktop.ts`
+  mocked. Rust tests use temporary repositories, loopback HTTP servers and local
+  fake executables with captured arguments/stdin. Tests never call real OpenAI,
+  Codex generation or Azure services.
+- Rust uses rustfmt and Clippy with warnings as errors; keep process/filesystem
+  errors contextual. TypeScript is strict, uses ES modules, tabs, double quotes
+  and Biome. Follow the checked-in formatter configuration.

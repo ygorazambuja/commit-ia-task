@@ -1,0 +1,39 @@
+[package]
+name = "commit-ia-task"
+version = "0.1.0"
+description = "Gera tarefas a partir de alterações Git"
+authors = ["Ygor Azambuja"]
+edition = "2024"
+default-run = "commit-ia-task"
+
+[lib]
+name = "commit_ia_task_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+csv = "1"
+dotenvy = "0.15"
+dirs = "6"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", rev = "c4c45d503ea115a839aae718d02f79e7c7f0f673" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[[bench]]
+name = "time_log_planner"
+harness = false

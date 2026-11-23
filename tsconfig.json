@@ -4,6 +4,9 @@
 		"lib": ["ESNext", "DOM"],
 		"target": "ESNext",
 		"module": "ESNext",
+		"paths": {
+			"@/*": ["./src/*"]
+		},
 		"moduleDetection": "force",
 		"jsx": "react-jsx",
 		"allowJs": true,
@@ -23,5 +26,6 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
-	}
+	},
+	"include": ["src", "vite.config.ts", "vitest.setup.ts"]
 }

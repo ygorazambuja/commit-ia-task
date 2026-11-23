@@ -1,0 +1,55 @@
+{
+  "title": "Tauri desktop migration",
+  "slug": "tauri-desktop-migration",
+  "created_at": "2026-07-27T05:52:23+00:00",
+  "status": "completed",
+  "approval": {
+    "required": false,
+    "granted": true,
+    "notes": "O pedido autoriza a migração local; ações externas reais ficam fora do escopo."
+  },
+  "packets": [
+    {
+      "id": "P1",
+      "status": "completed",
+      "owner": "behavior-audit"
+    },
+    {
+      "id": "P2",
+      "status": "completed",
+      "owner": "tauri-research"
+    },
+    {
+      "id": "P3",
+      "status": "completed",
+      "owner": "test-matrix"
+    },
+    {
+      "id": "P4",
+      "status": "completed",
+      "owner": "root"
+    },
+    {
+      "id": "P5",
+      "status": "completed",
+      "owner": "final-review"
+    }
+  ],
+  "verification": {
+    "status": "passed",
+    "checks": [
+      "bun install --frozen-lockfile",
+      "bun run test (7/7)",
+      "bun run typecheck",
+      "bun run build",
+      "bun run check",
+      "cargo fmt --check",
+      "cargo clippy --all-targets --locked -- -D warnings",
+      "cargo test --locked (35/35)",
+      "tauri build --no-bundle",
+      "tauri build --bundles app --ci --no-sign",
+      "desktop smoke test",
+      "git diff --check"
+    ]
+  }
+}

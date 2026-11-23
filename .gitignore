@@ -119,6 +119,8 @@ out
 
 .nuxt
 dist
+src-tauri/gen/
+src-tauri/target/
 
 # Gatsby files
 
