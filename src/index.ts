@@ -109,6 +109,9 @@ const isInteractiveTerminal = Boolean(
 	process.stdin.isTTY && process.stdout.isTTY,
 );
 
+// Sprint e área só são obrigatórias para criar tasks no Azure; o CSV sai com os campos vazios.
+const azureRequired = Boolean(values.createAzureTasks);
+
 const formatCurrentValue = (value: string): string => {
 	return value.trim().length > 0 ? value : "(não definido)";
 };
@@ -152,13 +155,13 @@ const promptConfig = async (config: SavedConfig): Promise<SavedConfig> => {
 			rl,
 			label: "Sprint ID",
 			currentValue: config.sprintId,
-			required: true,
+			required: azureRequired,
 		});
 		const areaPathId = await promptValue({
 			rl,
 			label: "Area Path ID",
 			currentValue: config.areaPathId,
-			required: true,
+			required: azureRequired,
 		});
 		const assignedTo = await promptValue({
 			rl,
@@ -236,13 +239,13 @@ const {
 	azureProject,
 } = config;
 
-if (!sprintId || !areaPathId) {
+if (azureRequired && (!sprintId || !areaPathId)) {
 	logger.error("❌ Parâmetros obrigatórios não fornecidos", {
 		sprintId,
 		areaPathId,
 	});
 	console.error(
-		"--sprintId and --areaPathId are required (or run with saved config)",
+		"--createAzureTasks exige --sprintId e --areaPathId (ou config salva)",
 	);
 	process.exit(1);
 }
