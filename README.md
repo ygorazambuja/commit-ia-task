@@ -18,7 +18,7 @@ CLI que lê as alterações pendentes de um repositório Git, usa IA para gerar 
 - Provedor de IA escolhido via `--aiProvider`:
   - `openai` (padrão): conta na plataforma OpenAI com créditos e `OPENAI_API_KEY`
   - `codex`: Codex CLI no PATH e autenticado com `codex login` (assinatura ChatGPT)
-  - `claude`: Claude Code autenticado com `claude login` (assinatura Claude) ou `ANTHROPIC_API_KEY`
+  - `claude`: Claude Code instalado, com o comando `claude` no PATH (`claude --version` precisa funcionar no terminal), e autenticado com `claude login` (assinatura Claude) ou `ANTHROPIC_API_KEY`. O executável compilado não carrega o binário do Claude que vem com o SDK, então usa o `claude` do PATH. Só é necessário com `--aiProvider claude`
 - Chave da TypeSafe em `JEV_API_KEY`: o modelo Jev classifica o serviço do catálogo (ID SPF) de cada tarefa. Opcional com `claude` e `codex`, que sem ela classificam com Haiku e Luna; obrigatória com `openai`
 
 ## 🛠 Instalação
@@ -58,20 +58,22 @@ Sem compilar, também é possível rodar `bun run <caminho-deste-repo>/src/index
 
 ```bash
 cd /caminho/do/repo-alvo
-commit-ia-task --sprintId "Projeto\\Sprint 1" --areaPathId "Projeto\\Area" [--assignedTo "Nome <email>"] [--itemContrato "Item 1"] [--aiProvider openai|codex|claude] [--noJev] [--branch feature/x [--baseBranch main]] [--createAzureTasks [--pbi 12345] --azureOrganization https://dev.azure.com/org --azureProject "Projeto"]
+commit-ia-task [--sprintId "Projeto\\Sprint 1"] [--areaPathId "Projeto\\Area"] [--assignedTo "Nome <email>"] [--itemContrato "Item 1"] [--aiProvider openai|codex|claude] [--noJev] [--branch feature/x [--baseBranch main]] [--createAzureTasks [--pbi 12345] --azureOrganization https://dev.azure.com/org --azureProject "Projeto"]
 ```
+
+Sem nenhuma flag nem config salva, o CLI gera o CSV com "Area ID" e "Iteration ID" vazios. `--sprintId` e `--areaPathId` só são obrigatórios com `--createAzureTasks`.
 
 ### Provedor de IA
 
 ```bash
 # OpenAI via API key (padrão)
-commit-ia-task --aiProvider openai --sprintId "123" --areaPathId "456"
+commit-ia-task --aiProvider openai
 
 # Codex via assinatura (após codex login)
-commit-ia-task --aiProvider codex --sprintId "123" --areaPathId "456"
+commit-ia-task --aiProvider codex
 
-# Claude via assinatura (após claude login) ou ANTHROPIC_API_KEY
-commit-ia-task --aiProvider claude --sprintId "123" --areaPathId "456"
+# Claude via assinatura (após claude login) ou ANTHROPIC_API_KEY; exige o claude no PATH
+commit-ia-task --aiProvider claude
 ```
 
 ### Gerar tarefas de uma branch
@@ -79,10 +81,10 @@ commit-ia-task --aiProvider claude --sprintId "123" --areaPathId "456"
 Com `--branch`, em vez das alterações pendentes, o CLI usa os arquivos alterados na branch: do ponto em que ela saiu da base até o último commit dela. Funciona com branch ativa ou antiga, local ou remota (`origin/feature-x`), e não precisa fazer checkout.
 
 ```bash
-commit-ia-task --branch feature/login --sprintId "123" --areaPathId "456"
+commit-ia-task --branch feature/login
 
 # Base diferente da padrão (branch ou commit)
-commit-ia-task --branch feature/login --baseBranch develop --sprintId "123" --areaPathId "456"
+commit-ia-task --branch feature/login --baseBranch develop
 ```
 
 - A base padrão é a `develop` (sem diferenciar maiúscula, preferindo `origin/develop`); se não existir, `origin/HEAD`, depois `main`, depois `master`.
@@ -131,8 +133,8 @@ az devops configure --defaults organization=https://dev.azure.com/minha-org proj
 
 | Flag                  | Descrição                                                                                      | Padrão                                                                |
 | --------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `--sprintId`          | Iteration path ou ID usado no CSV e no `az`                                                    | valor salvo; obrigatório se não houver                                |
-| `--areaPathId`        | Area path ou ID usado no CSV e no `az`                                                         | valor salvo; obrigatório se não houver                                |
+| `--sprintId`          | Iteration path ou ID usado no CSV e no `az`                                                    | valor salvo, senão vazio; obrigatório com `--createAzureTasks`        |
+| `--areaPathId`        | Area path ou ID usado no CSV e no `az`                                                         | valor salvo, senão vazio; obrigatório com `--createAzureTasks`        |
 | `--assignedTo`        | Responsável pelas tarefas                                                                      | valor salvo, senão `Ygor Azambuja <ygor.azambuja@infortechms.com.br>` |
 | `--itemContrato`      | Item de contrato no CSV                                                                        | valor salvo, senão `Item 1`                                           |
 | `--aiProvider`        | `openai`, `codex` ou `claude` (não é salvo)                                                    | `openai`                                                              |
@@ -163,7 +165,7 @@ Flags desconhecidas encerram o CLI com erro. Não existe `--help`.
 Resumo do que um agente precisa saber antes de executar:
 
 1. **Diretório:** rode dentro do repositório alvo. Sem `--branch`, o CLI analisa as alterações não commitadas do diretório atual (modificados, staged, renomeados e não rastreados). Com `--branch`, analisa os arquivos alterados naquela branch (veja "Gerar tarefas de uma branch"). Lock files (`pnpm-lock.yaml`, `bun.lockb`, `package-lock.json`) são ignorados.
-2. **Sem prompts:** sem TTY, o CLI não pergunta nada. Passe `--sprintId` e `--areaPathId` (ou garanta que estão salvos). Se faltarem, sai com código `1`.
+2. **Sem prompts:** sem TTY, o CLI não pergunta nada. Sem `--sprintId` e `--areaPathId` (nem valores salvos), o CSV sai com esses campos vazios. Com `--createAzureTasks` eles são obrigatórios; se faltarem, sai com código `1`.
 3. **Efeitos colaterais:**
    - Sem `--branch`, executa `git add` em cada arquivo processado com sucesso (altera o index do usuário).
    - Grava as flags passadas no `config.json`, substituindo os valores salvos.
@@ -222,7 +224,8 @@ Port do CLI Rust `timelog-bot` (repositório irmão), sem PAT: usa a credencial 
 - `JEV_API_KEY`: chave da TypeSafe usada para classificar o serviço de cada tarefa. Sem ela (ou com `--noJev`), `claude` classifica com `claude-haiku-5-5` e `codex` com `gpt-6-luna`; `openai` exige a chave. O CLI roda dentro do repositório alvo, então defina como variável de ambiente do usuário (um `.env` só é lido se estiver na pasta onde o comando roda)
 - `CODEX_MODEL`: modelo opcional para o Codex (usa a config do usuário se omitido)
 - `CLAUDE_MODEL`: modelo opcional para o Claude
-- `ANTHROPIC_API_KEY`: alternativa ao `claude login` com `--aiProvider claude`
+- `ANTHROPIC_API_KEY`: alternativa ao `claude login` com `--aiProvider claude` (o `claude` continua precisando estar no PATH)
+- `CLAUDE_CODE_PATH`: caminho do executável do Claude, para quando ele não está no PATH
 - `COMMIT_IA_TASK_CONFIG_DIR`: diretório alternativo para o `config.json`
 
 ## 📄 Saída

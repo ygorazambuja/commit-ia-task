@@ -74,7 +74,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 **index.ts** (src/index.ts)
 
 - CLI argument parsing using `node:util.parseArgs`
-- Required parameters: `--sprintId`, `--areaPathId` (unless saved in config)
+- `--sprintId`, `--areaPathId`: required only with `--createAzureTasks`; otherwise the CSV is generated with them empty
 - Optional parameters: `--assignedTo` (defaults to Ygor Azambuja), `--itemContrato`, `--branch`, `--baseBranch`, `--createAzureTasks`, `--pbi` (parent PBI ID, links each created task via `az boards work-item relation add --relation-type parent`; requires `--createAzureTasks`), `--azureOrganization`, `--azureProject`
 - Optional parameter: `--aiProvider` (`openai`, `codex` or `claude`, default: `openai`)
 - Validates credentials based on provider (`OPENAI_API_KEY` for openai, Codex CLI for codex; claude fails on first call if not logged in)
@@ -100,6 +100,7 @@ LOG_LEVEL=error bun run src/index.ts --sprintId "123" --areaPathId "456"
 
 - Uses `@anthropic-ai/claude-agent-sdk` `query()` with `outputFormat: json_schema`, no tools
 - Authenticates via Claude Code session (`claude login`) or `ANTHROPIC_API_KEY`
+- The `bun build --compile` binary does not carry the SDK's native `claude` binary, so `resolveClaudeExecutable()` falls back to `CLAUDE_CODE_PATH` or the `claude` on PATH; resolved lazily on the first Claude call so other providers never need it
 
 **ai-codex.ts** (src/ai-codex.ts)
 

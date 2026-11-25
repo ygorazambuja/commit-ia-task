@@ -71,7 +71,8 @@ export function resolveClaudeExecutable({
 	return fromPath;
 }
 
-const claudeExecutable = resolveClaudeExecutable();
+// Resolvido só na primeira chamada: openai/codex não dependem do claude.
+let claudeExecutable: { path?: string } | undefined;
 
 // Uma chamada sem ferramentas (o conteúdo já vem no prompt) que devolve JSON validado pelo schema.
 export async function queryClaude<T>(
@@ -79,15 +80,15 @@ export async function queryClaude<T>(
 	schema: z.ZodType<T>,
 	options: { systemPrompt?: string; model?: string; effort?: "low" },
 ): Promise<T> {
+	claudeExecutable ??= { path: resolveClaudeExecutable() };
+	const executablePath = claudeExecutable.path;
 	for await (const message of query({
 		prompt,
 		options: {
 			tools: [],
 			persistSession: false,
 			outputFormat: { type: "json_schema", schema: zodToJsonSchema(schema) },
-			...(claudeExecutable
-				? { pathToClaudeCodeExecutable: claudeExecutable }
-				: {}),
+			...(executablePath ? { pathToClaudeCodeExecutable: executablePath } : {}),
 			...options,
 		},
 	})) {
