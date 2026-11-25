@@ -196,7 +196,7 @@ Não é preciso clonar outros repositórios (como o `timelog-bot`), mas cada pes
 - Acha a PBI da sprint (`sprintId` salvo ou `--sprintId`) cujo título contém "Institucional". Se houver zero ou mais de uma, para com erro; use `--pbi <id>` para escolher.
 - Não duplica: se já existe uma task "Daily" criada hoje nessa PBI para o mesmo responsável, só informa o ID dela.
 - Feito para rodar no fim do expediente: a descrição é `Reunião diária da SPxx.` seguida de "Atividades do dia", a lista das tasks atribuídas ao responsável alteradas hoje (link `#id`, título e estado; outras Dailies ficam de fora).
-- Cria a task com título `Daily`, estado `Done`, estimativa 1h, ID SPF 17, UST 1 e complexidade BAIXA, vinculada à PBI.
+- Cria a task com título `Daily`, estado `Done`, estimativa 1h, ID SPF 11 (Gerenciamento de Projeto), UST 7 e complexidade BAIXA, vinculada à PBI.
 - `--dryRun` faz só as consultas e imprime a descrição que seria usada.
 - Precisa de `sprintId`, `areaPathId` e `assignedTo` salvos na config (rode o `commit-ia-task` uma vez) e do `az` autenticado.
 

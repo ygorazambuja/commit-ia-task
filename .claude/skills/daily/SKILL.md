@@ -36,7 +36,7 @@ Flags opcionais (nenhuma é salva na config):
 2. Acha a PBI da sprint cujo título contém "Institucional".
 3. Se já existe uma task "Daily" de hoje nessa PBI para o mesmo responsável, não cria outra (pode rodar de novo sem duplicar).
 4. Busca as tasks atribuídas ao responsável que foram alteradas hoje (qualquer sprint, exceto outras Dailies).
-5. Cria a task: título `Daily`, estado `Done`, 1h, ID SPF 17, UST 1, complexidade BAIXA, e vincula à PBI. A descrição é `Reunião diária da SPxx.` seguida da lista "Atividades do dia" com link `#id`, título e estado de cada task.
+5. Cria a task: título `Daily`, estado `Done`, 1h, ID SPF 11 (Gerenciamento de Projeto), UST 7, complexidade BAIXA, e vincula à PBI. A descrição é `Reunião diária da SPxx.` seguida da lista "Atividades do dia" com link `#id`, título e estado de cada task.
 
 Se rodar antes de lançar as tasks do dia (ex.: antes do `commit-ia-task --createAzureTasks`), elas ficam de fora, e uma segunda execução não atualiza a Daily já criada. Avise o usuário se ele pedir a daily cedo.
 

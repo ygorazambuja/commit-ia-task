@@ -124,7 +124,7 @@ export const registerDaily = async ({
 			: "<p>Nenhuma task alterada hoje.</p>"
 	}`;
 
-	// Mesmo padrão das Dailies já lançadas manualmente: 1h, ID SPF 17, UST 1, BAIXA, já concluída.
+	// Mesmo padrão das Dailies já lançadas manualmente: 1h, ID SPF 11 (Gerenciamento de Projeto), UST 7, BAIXA, já concluída.
 	const record: TaskRecord = {
 		ID: "",
 		"Work Item Type": "Task",
@@ -134,8 +134,8 @@ export const registerDaily = async ({
 		"Area ID": areaPathId,
 		"Iteration ID": sprintId,
 		"Item Contrato": itemContrato,
-		"ID SPF": "17",
-		UST: 1,
+		"ID SPF": "11",
+		UST: 7,
 		Complexidade: "BAIXA",
 		Activity: "Development",
 		Description: description,
