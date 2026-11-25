@@ -99,8 +99,11 @@ export async function queryClaude<T>(
 			message.is_error ||
 			!message.structured_output
 		) {
+			// is_error vem com subtype "success" em falhas como "Not logged in"; o texto está em result.
+			const detail =
+				"result" in message ? String(message.result).slice(0, 300) : "";
 			throw new Error(
-				`Claude não retornou saída estruturada (subtype: ${message.subtype})`,
+				`Claude não retornou saída estruturada (subtype: ${message.subtype}, is_error: ${message.is_error}): ${detail}`,
 			);
 		}
 
