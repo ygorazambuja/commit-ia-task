@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -40,16 +41,34 @@ export async function getClaudeResponse({ file, diff }: TaskGenerationInput) {
 }
 
 // O SDK usa o binário do pacote opcional da plataforma; se a instalação o pulou, cai no `claude` do PATH.
-function resolveClaudeExecutable(): string | undefined {
-	if (Bun.env.CLAUDE_CODE_PATH) return Bun.env.CLAUDE_CODE_PATH;
-	try {
-		require.resolve(
-			`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`,
-		);
-		return undefined;
-	} catch {
-		return Bun.which("claude") ?? undefined;
+// Mesma checagem do SDK: o pacote pode existir sem o claude.exe (antivírus, download interrompido).
+export function resolveClaudeExecutable({
+	env = Bun.env,
+	resolve = require.resolve,
+	exists = existsSync,
+	which = Bun.which,
+}: {
+	env?: Record<string, string | undefined>;
+	resolve?: (id: string) => string;
+	exists?: (path: string) => boolean;
+	which?: (command: string) => string | null;
+} = {}): string | undefined {
+	if (env.CLAUDE_CODE_PATH) return env.CLAUDE_CODE_PATH;
+	const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
+	const ext = process.platform === "win32" ? ".exe" : "";
+	for (const candidate of [pkg, `${pkg}-musl`]) {
+		try {
+			if (exists(resolve(`${candidate}/claude${ext}`))) return undefined;
+		} catch {}
 	}
+	const fromPath = which("claude") ?? undefined;
+	logger.warn(
+		"⚠️ Binário do Claude Agent SDK ausente, usando o claude do PATH",
+		{
+			path: fromPath ?? "(não encontrado)",
+		},
+	);
+	return fromPath;
 }
 
 const claudeExecutable = resolveClaudeExecutable();

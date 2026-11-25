@@ -224,6 +224,21 @@ if (results.length !== 1 || !results[0]?.fullFilePath.endsWith(${JSON.stringify(
 		});
 	});
 
+	test("skips nested repositories that git reports as directories", async () => {
+		const repository = join(tempDir, "repository");
+		await initRepository(repository);
+		// Sozinho no status, o diretório fazia o getDiff falhar com "Directories cannot be read like files".
+		await initRepository(join(repository, "nested"));
+
+		const results = await getDiff(repository, {
+			taskCreator: async () => {
+				throw new Error("não deveria processar diretório");
+			},
+		});
+
+		expect(results).toEqual([]);
+	});
+
 	test("fails when no changed file can be processed", async () => {
 		const repository = join(tempDir, "repository");
 		await initRepository(repository);
