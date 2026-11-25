@@ -39,6 +39,21 @@ export async function getClaudeResponse({ file, diff }: TaskGenerationInput) {
 	};
 }
 
+// O SDK usa o binário do pacote opcional da plataforma; se a instalação o pulou, cai no `claude` do PATH.
+function resolveClaudeExecutable(): string | undefined {
+	if (Bun.env.CLAUDE_CODE_PATH) return Bun.env.CLAUDE_CODE_PATH;
+	try {
+		require.resolve(
+			`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`,
+		);
+		return undefined;
+	} catch {
+		return Bun.which("claude") ?? undefined;
+	}
+}
+
+const claudeExecutable = resolveClaudeExecutable();
+
 // Uma chamada sem ferramentas (o conteúdo já vem no prompt) que devolve JSON validado pelo schema.
 export async function queryClaude<T>(
 	prompt: string,
@@ -51,6 +66,9 @@ export async function queryClaude<T>(
 			tools: [],
 			persistSession: false,
 			outputFormat: { type: "json_schema", schema: zodToJsonSchema(schema) },
+			...(claudeExecutable
+				? { pathToClaudeCodeExecutable: claudeExecutable }
+				: {}),
 			...options,
 		},
 	})) {

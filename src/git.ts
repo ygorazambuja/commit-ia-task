@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { createTasks, type TaskFile } from "./ai";
 import type { AiProvider } from "./ai-provider";
@@ -227,8 +228,13 @@ async function getAlteredFileMetas(
 		}
 	}
 
+	// Submódulos e repositórios aninhados aparecem como diretórios no status/diff.
 	const filteredNames = [...namesSet].filter(
-		(relPath) => !isIgnoredFile(relPath),
+		(relPath) =>
+			!isIgnoredFile(relPath) &&
+			!statSync(join(gitFolder, relPath), {
+				throwIfNoEntry: false,
+			})?.isDirectory(),
 	);
 	const metas = filteredNames.map((relPath) => {
 		const statusMeta = statusMap.get(relPath);
